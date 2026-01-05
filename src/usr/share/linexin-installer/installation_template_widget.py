@@ -5,518 +5,591 @@ import gi
 import json
 import subprocess
 import re
+import time
+import threading
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, GObject
+from gi.repository import Gtk, Adw, GLib, GObject, Gio
 from simple_localization_manager import get_localization_manager
 _ = get_localization_manager().get_text
 
 class InstallationTemplateWidget(Gtk.Box):
     """
     A GTK widget for selecting installation templates during system installation.
-    Provides options for installing on free space, clean install, or manual partitioning.
+    Splits selected partition into EFI (FAT32) and Root (ext4) automatically.
     """
-    
+
     __gsignals__ = {
         'template-selected': (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
         'continue-to-next-page': (GObject.SignalFlags.RUN_FIRST, None, ())
     }
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         get_localization_manager().register_widget(self)
-        
+
         self.set_orientation(Gtk.Orientation.VERTICAL)
-        self.set_spacing(20)
-        self.set_margin_top(30)
-        self.set_margin_bottom(30)
-        
+        self.set_spacing(0)
+
         # State tracking
         self.selected_template = None
-        self.free_spaces = []  # List of free spaces found
-        self.available_disks = []
+        self.partitions = []
+        self.selected_partition = None
         self.selected_disk = None
-        self.selected_free_space = None
+        self.selected_disk_widget = None
+
+        # Connect map signal to refresh data when widget becomes visible
+        self.connect("map", self._on_map)
+
+        # --- UI Construction ---
+        self.view_stack = Gtk.Stack()
+        self.view_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.append(self.view_stack)
+
+        # 1. Main Content View
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=40)
+        self.content_box.set_margin_top(60)
+        self.content_box.set_margin_bottom(60)
+        self.content_box.set_margin_start(40)
+        self.content_box.set_margin_end(40)
+        self.content_box.set_vexpand(True)
+        self.content_box.set_valign(Gtk.Align.CENTER)
         
-        # --- Title Label ---
+        self.view_stack.add_named(self.content_box, "main")
+
+        # Title & Subtitle
         self.title = Gtk.Label()
-        self.title.set_markup('<span size="xx-large" weight="bold">Choose Installation Type</span>')
+        self.title.set_markup('<span size="32000" weight="300">Select a partition to install</span>')
         self.title.set_halign(Gtk.Align.CENTER)
-        self.append(self.title)
-        
-        # --- Adw.Clamp constrains the width of the content ---
-        clamp = Adw.Clamp(margin_start=12, margin_end=12, maximum_size=600)
-        clamp.set_vexpand(True)
-        self.append(clamp)
-        
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        clamp.set_child(content_box)
-        
-        # --- Subtitle Label ---
-        self.subtitle = Gtk.Label(
-            label="Select how you want to install the operating system.",
-            halign=Gtk.Align.CENTER
-        )
+        self.content_box.append(self.title)
+
+        self.subtitle = Gtk.Label()
+        self.subtitle.set_markup('<span size="11500">The selected partition will be replaced with linexin.</span>')
+        self.subtitle.set_halign(Gtk.Align.CENTER)
         self.subtitle.add_css_class('dim-label')
-        content_box.append(self.subtitle)
-        
-        # --- Scrolled Window for the options ---
-        scrolled_window = Gtk.ScrolledWindow()
-        scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_window.set_vexpand(True)
-        content_box.append(scrolled_window)
-        
-        # Options container
-        options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-        options_box.set_margin_top(20)
-        options_box.set_margin_start(20)
-        options_box.set_margin_end(20)
-        scrolled_window.set_child(options_box)
-        
-        # --- Installation Options ---
-        
-        # Detect free spaces on all disks
-        self._detect_free_spaces()
-        
-        # Option 1: Install on free space (only if sufficient free space is detected)
-        if self.free_spaces:
-            free_space_group = Adw.PreferencesGroup()
-            options_box.append(free_space_group)
-            
-            self.free_space_row = Adw.ActionRow()
-            self.free_space_row.set_title("Install on free space")
-            self.free_space_row.set_subtitle("Use available free space on disk without removing existing data")
-            
-            free_space_radio = Gtk.CheckButton()
-            free_space_radio.set_active(False)
-            self.free_space_row.add_prefix(free_space_radio)
-            self.free_space_row.set_activatable_widget(free_space_radio)
-            
-            free_space_icon = Gtk.Image.new_from_icon_name("list-add-symbolic")
-            free_space_icon.set_pixel_size(32)
-            self.free_space_row.add_suffix(free_space_icon)
-            
-            free_space_group.add(self.free_space_row)
-            
-            # Free space details (initially hidden)
-            self.free_space_details_revealer = Gtk.Revealer()
-            self.free_space_details_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-            options_box.append(self.free_space_details_revealer)
-            
-            free_space_details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            free_space_details_box.set_margin_start(40)
-            free_space_details_box.set_margin_end(20)
-            self.free_space_details_revealer.set_child(free_space_details_box)
-            
-            # Free space selector (if multiple free spaces)
-            if len(self.free_spaces) > 1:
-                space_label = Gtk.Label(label="Select free space to use:", xalign=0)
-                space_label.add_css_class('dim-label')
-                free_space_details_box.append(space_label)
-                
-                self.free_space_combo = Gtk.ComboBoxText()
-                for fs in self.free_spaces:
-                    size_gb = fs['size'] // (1024**3)
-                    self.free_space_combo.append_text(f"{fs['disk']} - {size_gb} GB free")
-                self.free_space_combo.set_active(0)
-                self.free_space_combo.connect("changed", self._on_free_space_selection_changed)
-                free_space_details_box.append(self.free_space_combo)
-            else:
-                # Single free space info
-                fs = self.free_spaces[0]
-                size_gb = fs['size'] // (1024**3)
-                info_label = Gtk.Label(
-                    label=f"Available free space: {size_gb} GB on {fs['disk']}",
-                    xalign=0
-                )
-                info_label.add_css_class('dim-label')
-                free_space_details_box.append(info_label)
-            
-            # Show what will be created
-            self.space_config_label = Gtk.Label(xalign=0)
-            self.space_config_label.add_css_class('dim-label')
-            self._update_space_config_info()
-            free_space_details_box.append(self.space_config_label)
-            
-            # Info about automatic configuration
-            info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            info_box.set_margin_top(10)
-            free_space_details_box.append(info_box)
-            
-            info_icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
-            info_icon.set_pixel_size(16)
-            info_box.append(info_icon)
-            
-            info_label = Gtk.Label(xalign=0)
-            info_label.set_markup('<span size="small">Linux will be automatically configured with:\n'
-                                 '• Boot partition (if UEFI mode)\n'
-                                 '• Root partition with remaining space</span>')
-            info_label.set_wrap(True)
-            info_box.append(info_label)
-            
-            free_space_radio.connect("toggled", self._on_free_space_toggled)
-        else:
-            free_space_radio = None
-        
-        # Option 2: Wipe disk and install
-        wipe_group = Adw.PreferencesGroup()
-        options_box.append(wipe_group)
-        
-        self.wipe_row = Adw.ActionRow()
-        self.wipe_row.set_title("Erase disk and install")
-        self.wipe_row.set_subtitle("Delete all data on the selected disk and install the system")
-        
-        wipe_radio = Gtk.CheckButton()
-        if free_space_radio:
-            wipe_radio.set_group(free_space_radio)
-        wipe_radio.set_active(False)
-        self.wipe_row.add_prefix(wipe_radio)
-        self.wipe_row.set_activatable_widget(wipe_radio)
-        
-        wipe_icon = Gtk.Image.new_from_icon_name("drive-harddisk-symbolic")
-        wipe_icon.set_pixel_size(32)
-        self.wipe_row.add_suffix(wipe_icon)
-        
-        wipe_group.add(self.wipe_row)
-        
-        # Disk selector (initially hidden)
-        self.disk_details_revealer = Gtk.Revealer()
-        self.disk_details_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        options_box.append(self.disk_details_revealer)
-        
-        disk_details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        disk_details_box.set_margin_start(40)
-        disk_details_box.set_margin_end(20)
-        self.disk_details_revealer.set_child(disk_details_box)
-        
-        disk_label = Gtk.Label(label="Select disk to format:", xalign=0)
-        disk_label.add_css_class('dim-label')
-        disk_details_box.append(disk_label)
-        
-        # Detect available disks
-        self._detect_available_disks()
-        
-        self.disk_combo = Gtk.ComboBoxText()
-        for disk in self.available_disks:
-            size_gb = disk['size'] // (1024**3)
-            self.disk_combo.append_text(f"{disk['device']} - {disk['model']} ({size_gb} GB)")
-        if self.available_disks:
-            self.disk_combo.set_active(0)
-        disk_details_box.append(self.disk_combo)
-        
-        # Warning label
-        warning_label = Gtk.Label(xalign=0)
-        warning_text = "Warning: All data will be lost!"
-        warning_label.set_markup(f'<span color="red" weight="bold">{warning_text}</span>')
-        warning_label.set_wrap(True)
-        disk_details_box.append(warning_label)
-        
-        wipe_radio.connect("toggled", self._on_wipe_toggled)
-        
-        # Option 3: Manual partitioning
-        manual_group = Adw.PreferencesGroup()
-        options_box.append(manual_group)
-        
-        self.manual_row = Adw.ActionRow()
-        self.manual_row.set_title("Manual partitioning")
-        self.manual_row.set_subtitle("Create, resize, and configure partitions manually")
-        
-        manual_radio = Gtk.CheckButton()
-        if free_space_radio:
-            manual_radio.set_group(free_space_radio)
-        elif wipe_radio:
-            manual_radio.set_group(wipe_radio)
-        manual_radio.set_active(True)  # Default selection
-        self.manual_row.add_prefix(manual_radio)
-        self.manual_row.set_activatable_widget(manual_radio)
-        
-        manual_icon = Gtk.Image.new_from_icon_name("applications-utilities-symbolic")
-        manual_icon.set_pixel_size(32)
-        self.manual_row.add_suffix(manual_icon)
-        
-        manual_group.add(self.manual_row)
-        
-        manual_radio.connect("toggled", self._on_manual_toggled)
-        
-        # Store radio buttons for reference
-        self.free_space_radio = free_space_radio
-        self.wipe_radio = wipe_radio
-        self.manual_radio = manual_radio
-        
-        # Set default selection
-        self.selected_template = "manual"
-        
-        # --- Navigation Buttons ---
+        self.content_box.append(self.subtitle)
+
+        # Scrolled Area
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        scrolled.set_vexpand(True)
+        self.content_box.append(scrolled)
+
+        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        center_box.set_halign(Gtk.Align.CENTER)
+        center_box.set_valign(Gtk.Align.CENTER)
+        scrolled.set_child(center_box)
+
+        self.partition_cards_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        self.partition_cards_box.set_halign(Gtk.Align.CENTER)
+        center_box.append(self.partition_cards_box)
+
+        # Info Label
+        self.info_label = Gtk.Label()
+        self.info_label.set_wrap(True)
+        self.info_label.set_max_width_chars(70)
+        self.info_label.set_halign(Gtk.Align.CENTER)
+        self.info_label.add_css_class('dim-label')
+        self.info_label.set_margin_top(30)
+        self.content_box.append(self.info_label)
+
+        # Buttons
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_box.set_halign(Gtk.Align.CENTER)
-        self.append(button_box)
-        
+        button_box.set_margin_bottom(30)
+        self.append(button_box) # Note: We keep buttons outside the stack so they persist, or move inside if you want them hidden
+
+        # Actually, if we want to "wait" effectively, we might want to hide these buttons or disable them.
+        # But simpler is to put everything in the stack or just overlay. 
+        # Let's move the button_box INTO content_box so it disappears when showing the spinner.
+        # Re-appending to content_box instead of self
+        self.remove(button_box)
+        self.content_box.append(button_box)
+
         self.btn_back = Gtk.Button(label="Back")
         self.btn_back.add_css_class('buttons_all')
+        self.btn_back.set_size_request(140, 40)
         button_box.append(self.btn_back)
-        
+
         self.btn_proceed = Gtk.Button(label="Continue")
         self.btn_proceed.add_css_class('suggested-action')
         self.btn_proceed.add_css_class('buttons_all')
+        self.btn_proceed.set_size_request(140, 40)
         self.btn_proceed.connect("clicked", self.on_continue_clicked)
+        self.btn_proceed.set_sensitive(False)
         button_box.append(self.btn_proceed)
-        
+
+        # 2. Waiting View
+        self._create_waiting_ui()
+
         get_localization_manager().update_widget_tree(self)
-    
-    def _detect_free_spaces(self):
-        """Detect free spaces larger than 10GB on all disks"""
-        try:
-            # First get list of all disks
-            cmd = ['lsblk', '-d', '-J', '-o', 'NAME,SIZE,MODEL,TYPE']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if process.returncode == 0:
-                data = json.loads(process.stdout)
-                
-                for device in data.get('blockdevices', []):
-                    if device.get('type') == 'disk':
-                        disk_name = f"/dev/{device['name']}"
-                        
-                        # Get free space info using parted
-                        cmd = ['sudo', 'parted', disk_name, 'unit', 'B', 'print', 'free']
-                        parted_process = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                        
-                        if parted_process.returncode == 0:
-                            lines = parted_process.stdout.split('\n')
-                            
-                            for line in lines:
-                                if 'Free Space' in line:
-                                    parts = line.strip().split()
-                                    if len(parts) >= 3:
-                                        try:
-                                            start = int(parts[0].replace('B', ''))
-                                            end = int(parts[1].replace('B', ''))
-                                            size = int(parts[2].replace('B', ''))
-                                            
-                                            # Only consider free spaces larger than 10GB
-                                            if size > 10 * 1024**3:
-                                                self.free_spaces.append({
-                                                    'disk': disk_name,
-                                                    'start': start,
-                                                    'end': end,
-                                                    'size': size,
-                                                    'model': device.get('model', 'Unknown')
-                                                })
-                                        except (ValueError, IndexError):
-                                            continue
-        
-        except Exception as e:
-            print(f"Error detecting free spaces: {e}")
-    
-    def _detect_available_disks(self):
-        """Detect all available disks on the system"""
-        try:
-            cmd = ['lsblk', '-d', '-J', '-o', 'NAME,SIZE,MODEL,TYPE']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if process.returncode == 0:
-                data = json.loads(process.stdout)
-                
-                for device in data.get('blockdevices', []):
-                    if device.get('type') == 'disk':
-                        # Get size in bytes
-                        size_cmd = ['sudo', 'blockdev', '--getsize64', f"/dev/{device['name']}"]
-                        size_process = subprocess.run(size_cmd, capture_output=True, text=True, timeout=5)
-                        
-                        if size_process.returncode == 0:
-                            size_bytes = int(size_process.stdout.strip())
-                            
-                            self.available_disks.append({
-                                'device': f"/dev/{device['name']}",
-                                'size': size_bytes,
-                                'model': device.get('model', 'Unknown')
-                            })
-        
-        except Exception as e:
-            print(f"Error detecting available disks: {e}")
-    
-    def _on_free_space_toggled(self, radio):
-        """Handle free space option toggle"""
-        if radio.get_active():
-            self.selected_template = "free_space"
-            self.free_space_details_revealer.set_reveal_child(True)
-            self.disk_details_revealer.set_reveal_child(False)
-            self._update_space_config_info()
-    
-    def _on_wipe_toggled(self, radio):
-        """Handle wipe disk option toggle"""
-        if radio.get_active():
-            self.selected_template = "wipe"
-            self.disk_details_revealer.set_reveal_child(True)
-            if self.free_spaces:
-                self.free_space_details_revealer.set_reveal_child(False)
-    
-    def _on_manual_toggled(self, radio):
-        """Handle manual partitioning option toggle"""
-        if radio.get_active():
-            self.selected_template = "manual"
-            self.disk_details_revealer.set_reveal_child(False)
-            if self.free_spaces:
-                self.free_space_details_revealer.set_reveal_child(False)
-    
-    def _on_free_space_selection_changed(self, combo):
-        """Handle free space selection change"""
-        self._update_space_config_info()
-    
-    def _update_space_config_info(self):
-        """Update the space configuration info label"""
-        if self.free_spaces:
-            if hasattr(self, 'free_space_combo') and len(self.free_spaces) > 1:
-                selected_fs = self.free_spaces[self.free_space_combo.get_active()]
-            else:
-                selected_fs = self.free_spaces[0]
-            
-            size_gb = selected_fs['size'] // (1024**3)
-            
-            # Detect if system is UEFI or Legacy
-            if os.path.exists('/sys/firmware/efi'):
-                config_text = (f"Will create in {size_gb} GB free space:\n"
-                              f"• 1 GB FAT32 boot partition (EFI)\n"
-                              f"• {size_gb - 1} GB ext4 root partition")
-            else:
-                config_text = (f"Will create in {size_gb} GB free space:\n"
-                              f"• {size_gb} GB ext4 root partition (bootable)")
-            
-            self.space_config_label.set_text(config_text)
-    
-    def _show_progress_dialog(self, heading, message):
-        """Show progress dialog with spinner"""
-        dialog = Adw.MessageDialog(
-            heading=heading,
-            body=message,
-            transient_for=self.get_root()
-        )
+
+    def _create_waiting_ui(self):
+        """Creates the UI shown while GParted is running"""
+        waiting_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        waiting_box.set_halign(Gtk.Align.CENTER)
+        waiting_box.set_valign(Gtk.Align.CENTER)
         
         spinner = Gtk.Spinner()
+        spinner.set_size_request(64, 64)
         spinner.start()
-        spinner.set_size_request(32, 32)
         
-        content_area = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        content_area.set_halign(Gtk.Align.CENTER)
-        content_area.append(spinner)
-        content_area.append(Gtk.Label(label="Please wait..."))
+        label = Gtk.Label(label="Waiting for partitioning tool...")
+        label.add_css_class("title-2")
         
-        dialog.set_extra_child(content_area)
-        dialog.present()
+        desc = Gtk.Label(label="The partition list will refresh automatically when you close Disks.")
+        desc.add_css_class("dim-label")
         
-        return dialog
-    
-    def _show_error_dialog(self, heading, message):
-        """Show error dialog"""
-        dialog = Adw.MessageDialog(
-            heading=heading,
-            body=message,
-            transient_for=self.get_root()
-        )
-        dialog.add_response("ok", "OK")
-        dialog.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.present()
-    
-    def on_continue_clicked(self, button):
-        """Handle continue button click"""
-        self._proceed_with_template()
-    
-    def _proceed_with_template(self):
-        """Proceed with the selected template"""
-        template_data = {
-            'template': self.selected_template
-        }
+        waiting_box.append(spinner)
+        waiting_box.append(label)
+        waiting_box.append(desc)
         
-        if self.selected_template == "free_space":
-            # Prepare data for free space installation
-            if hasattr(self, 'free_space_combo') and len(self.free_spaces) > 1:
-                selected_free_space = self.free_spaces[self.free_space_combo.get_active()]
-            else:
-                selected_free_space = self.free_spaces[0]
-            
-            template_data['disk'] = selected_free_space['disk']
-            template_data['free_space'] = selected_free_space
-            
-        elif self.selected_template == "wipe":
-            # Prepare data for wipe installation
-            if self.available_disks:
-                selected_disk = self.available_disks[self.disk_combo.get_active()]
-                template_data['target_disk'] = selected_disk['device']
-        
-        # Emit signal with template data
-        self.emit('template-selected', self.selected_template, template_data)
-    
-    def execute_template(self, disk_utility_widget):
-        """Execute the selected template using disk_utility_widget methods"""
-        if self.selected_template == "free_space":
-            return self._execute_free_space_installation(disk_utility_widget)
-        elif self.selected_template == "wipe":
-            return self._execute_wipe_installation(disk_utility_widget)
-        else:  # manual
-            # For manual, just proceed to disk utility
-            return True
-    
-    def _execute_free_space_installation(self, disk_utility_widget):
-        """Execute installation on free space using disk_utility_widget"""
-        try:
-            if hasattr(self, 'free_space_combo') and len(self.free_spaces) > 1:
-                selected_free_space = self.free_spaces[self.free_space_combo.get_active()]
-            else:
-                selected_free_space = self.free_spaces[0]
-            
-            disk = selected_free_space['disk']
-            
-            print(f"Installing on free space: {disk}")
-            print(f"Free space details: start={selected_free_space['start']}, end={selected_free_space['end']}, size={selected_free_space['size']}")
-            
-            # Set up disk_utility_widget to use the free space
-            disk_utility_widget.selected_disk = disk
-            disk_utility_widget.selected_free_space = selected_free_space
-            disk_utility_widget.type = 2  # Type 2 indicates free space
-            
-            # Call auto configure which will use the free space
-            disk_utility_widget._auto_configure_disk()
-            
-            return True
-            
-        except Exception as e:
-            self._show_error_dialog("Error", f"Failed to configure free space installation: {str(e)}")
-            return False
-    
-    def _execute_wipe_installation(self, disk_utility_widget):
-        """Execute wipe disk installation using disk_utility_widget"""
-        try:
-            if self.available_disks:
-                selected_disk = self.available_disks[self.disk_combo.get_active()]
-                disk = selected_disk['device']
-                
-                print(f"Wiping and installing on disk: {disk}")
-                
-                # Set up disk_utility_widget for whole disk
-                disk_utility_widget.selected_disk = disk
-                disk_utility_widget.type = 0  # Type 0 indicates whole disk
-                
-                # Detect boot mode
-                boot_mode = "uefi" if os.path.exists('/sys/firmware/efi') else "legacy"
-                
-                # Show progress dialog
-                progress_dialog = self._show_progress_dialog(
-                    "Formatting Disk",
-                    f"Wiping {disk} and creating partitions..."
-                )
-                
-                # Execute the wipe using disk_utility_widget's method
-                success = disk_utility_widget._wipe_disk_sync(progress_dialog, boot_mode)
+        self.view_stack.add_named(waiting_box, "waiting")
 
-                if success:
-                    # Emit the continue signal to proceed to next page
-                    GLib.idle_add(lambda: self.emit('continue-to-next-page'))
-                
-                return success
+    def on_open_gparted_clicked(self, button=None):
+        """
+        Public method to be called by external buttons (e.g. from Installer headerbar).
+        Launches GParted and shows waiting screen.
+        """
+        self.view_stack.set_visible_child_name("waiting")
+        
+        try:
+            # Launch gparted asynchronously
+            process = Gio.Subprocess.new(['gnome-disks'], Gio.SubprocessFlags.NONE)
+            process.wait_check_async(None, self._on_gparted_closed)
+        except GLib.Error as e:
+            # Fallback if launch fails
+            self.view_stack.set_visible_child_name("main")
+            self._show_error_dialog("Error", f"Could not launch GParted: {e.message}")
+
+    def _on_gparted_closed(self, process, result):
+        """Callback when GParted closes"""
+        try:
+            process.wait_check_finish(result)
+        except GLib.Error as e:
+            print(f"GParted exited with error: {e}")
+        finally:
+            # Restore UI and refresh on the main thread
+            GLib.idle_add(self._restore_and_refresh)
+
+    def _restore_and_refresh(self):
+        """Switch back to main view and refresh partitions"""
+        self.refresh()
+        self.view_stack.set_visible_child_name("main")
+
+    def _on_map(self, widget):
+        """Called when the widget becomes visible (mapped)"""
+        # Only refresh if we are showing the main view
+        if self.view_stack.get_visible_child_name() == "main":
+            self.refresh()
+
+    def refresh(self):
+        """Refreshes the partition list and resets state"""
+        # Clear existing cards
+        child = self.partition_cards_box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.partition_cards_box.remove(child)
+            child = next_child
+
+        # Reset state
+        self.selected_template = None
+        self.partitions = []
+        self.selected_partition = None
+        self.selected_disk = None
+        self.selected_disk_widget = None
+        self.btn_proceed.set_sensitive(False)
+        self.info_label.set_markup("")
+
+        # Redetect
+        self._detect_partitions()
+        self._create_partition_cards()
+
+    def _detect_partitions(self):
+        """Detect partitions and Free Space > 15GB with precise sector counts"""
+        self.partitions = []
+        try:
+            # 1. Standard Partition Detection (lsblk)
+            cmd = ['lsblk', '-J', '-o', 'NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,TYPE,PKNAME,START']
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
-            return False
-            
+            parent_disks = set()
+
+            if process.returncode == 0:
+                data = json.loads(process.stdout)
+                for device in data.get('blockdevices', []):
+                    if device.get('type') == 'disk':
+                        parent_disks.add(f"/dev/{device['name']}")
+
+                    if 'children' in device:
+                        for partition in device['children']:
+                            if partition.get('type') == 'part':
+                                part_path = f"/dev/{partition['name']}"
+                                # Get exact size in bytes to calculate sectors
+                                size_cmd = ['sudo', 'blockdev', '--getsize64', part_path]
+                                size_proc = subprocess.run(size_cmd, capture_output=True, text=True)
+
+                                if size_proc.returncode == 0:
+                                    size_bytes = int(size_proc.stdout.strip())
+                                    size_gb = size_bytes // (1024**3)
+                                    # Assume 512-byte sectors for standard calculation
+                                    size_sectors = size_bytes // 512
+
+                                    if size_gb >= 25: 
+                                        self.partitions.append({
+                                            'type': 'partition',
+                                            'device': part_path,
+                                            'name': partition['name'],
+                                            'display_name': partition.get('label') or partition.get('name'),
+                                            'size_gb': size_gb,
+                                            'size_sectors': size_sectors,
+                                            'start_sector': partition.get('start'),
+                                            'parent_disk': f"/dev/{partition['pkname']}"
+                                        })
+
+            # 2. Free Space Detection (parted)
+            for parent_disk in parent_disks:
+                try:
+                    # Output machine readable, unit sectors
+                    p_cmd = ['sudo', 'parted', '-m', parent_disk, 'unit', 's', 'print', 'free']
+                    p_proc = subprocess.run(p_cmd, capture_output=True, text=True)
+                    
+                    if p_proc.returncode == 0:
+                        lines = p_proc.stdout.strip().splitlines()
+                        for line in lines:
+                            if not line.strip() or line.startswith('BYT;'): continue
+                                
+                            # Format: number:start:end:size:filesystem:name:flags;
+                            parts = line.split(':')
+                            if len(parts) > 4 and 'free' in parts[4]:
+                                size_str = parts[3].replace('s', '')
+                                start_str = parts[1].replace('s', '')
+                                
+                                size_sectors = int(size_str)
+                                size_gb = (size_sectors * 512) // (1024**3)
+                                
+                                if size_gb >= 15: # <--- CHANGED FROM 10 to 15
+                                    self.partitions.append({
+                                        'type': 'freespace',
+                                        'device': 'Unallocated Space',
+                                        'name': 'Free Space',
+                                        'display_name': 'Free Space',
+                                        'size_gb': size_gb,
+                                        'size_sectors': size_sectors,
+                                        'start_sector': start_str,
+                                        'parent_disk': parent_disk
+                                    })
+                except Exception as e:
+                    print(f"Failed to scan free space on {parent_disk}: {e}")
+
         except Exception as e:
-            self._show_error_dialog("Error", f"Failed to execute wipe installation: {str(e)}")
-            return False
+            print(f"Error in detection: {e}")
+
+    def _create_partition_cards(self):
+        if not self.partitions:
+            return
+
+        for partition in self.partitions:
+            card_button = Gtk.Button()
+            card_button.add_css_class('card')
+            card_button.set_size_request(220, 200)
+
+            overlay = Gtk.Overlay()
+            card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            card_box.set_valign(Gtk.Align.CENTER)
+
+            icon_name = "drive-harddisk-symbolic"
+            if partition.get('type') == 'freespace':
+                icon_name = "list-add-symbolic"
+
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            icon.set_pixel_size(72)
+            icon.set_halign(Gtk.Align.CENTER)
+            if partition.get('type') == 'freespace':
+                icon.set_opacity(0.5) # Dim the icon for free space
+            card_box.append(icon)
+
+            name_lbl = Gtk.Label(label=partition['display_name'])
+            name_lbl.add_css_class('title-4')
+            card_box.append(name_lbl)
+
+            size_lbl = Gtk.Label(label=f"{partition['size_gb']} GB")
+            size_lbl.add_css_class('dim-label')
+            card_box.append(size_lbl)
+
+            # Show "Available" instead of path for free space
+            sub_text = partition['device'] if partition['type'] == 'partition' else "Available for Install"
+            path_lbl = Gtk.Label(label=sub_text)
+            path_lbl.add_css_class('caption')
+            card_box.append(path_lbl)
+
+            overlay.set_child(card_box)
+
+            check = Gtk.Image.new_from_icon_name("object-select-symbolic")
+            check.set_halign(Gtk.Align.END)
+            check.set_valign(Gtk.Align.START)
+            check.set_margin_top(10)
+            check.set_margin_end(10)
+            check.set_opacity(0)
+            overlay.add_overlay(check)
+
+            card_button.set_child(overlay)
+            card_button.partition_data = partition
+            card_button.check_icon = check
+            card_button.connect("clicked", self._on_partition_card_clicked)
+
+            self.partition_cards_box.append(card_button)
+
+    def _on_partition_card_clicked(self, button):
+        if self.selected_disk_widget:
+            self.selected_disk_widget.remove_css_class('suggested-action')
+            self.selected_disk_widget.check_icon.set_opacity(0)
+
+        button.add_css_class('suggested-action')
+        button.check_icon.set_opacity(1)
+        self.selected_disk_widget = button
+
+        self.selected_partition = button.partition_data
+        self.selected_disk = self.selected_partition['parent_disk']
+        self.selected_template = "wipe"
+
+        boot_mode = self._detect_boot_mode()
+        if boot_mode == "uefi":
+            msg = (f"Will split <b>{self.selected_partition['device']}</b> into:\n"
+                   f"1. <b>EFI Boot</b> (512 MB)\n"
+                   f"2. <b>Root</b> (Remaining space)")
+        else:
+            msg = (f"Will replace <b>{self.selected_partition['device']}</b> with:\n"
+                   f"1. <b>Root</b> (Full available space, Bootable)")
+
+        self.info_label.set_markup(msg)
+        self.btn_proceed.set_sensitive(True)
+
+    def on_continue_clicked(self, btn):
+        self.emit('template-selected', self.selected_template, {
+            'template': 'wipe',
+            'target_disk': self.selected_partition['device'],
+            'parent_disk': self.selected_partition['parent_disk']
+        })
+
+    def execute_template(self, disk_utility_widget):
+        """Starts the threading process for partitioning"""
+        # Show the progress dialog immediately on the main thread
+        self.progress_dialog = self._show_progress_dialog("Partitioning", "Preparing disk...")
+        
+        # Start the heavy lifting in a separate thread
+        thread = threading.Thread(target=self._split_and_format_partition_thread, args=(disk_utility_widget,))
+        thread.daemon = True
+        thread.start()
+        return True
+
+    def _detect_boot_mode(self):
+        """Detect if the system is running in UEFI or Legacy mode"""
+        try:
+            if os.path.exists('/sys/firmware/efi'):
+                return "uefi"
+            else:
+                return "legacy"
+        except Exception:
+            return "legacy"
+
+    def _split_and_format_partition_thread(self, disk_utility_widget):
+        """Background thread logic: Delete -> Create (Limited Size) -> Format"""
+        try:
+            boot_mode = self._detect_boot_mode()
+            
+            parent_disk = self.selected_partition['parent_disk']
+            target_device = self.selected_partition['device']
+            start_sector = int(self.selected_partition['start_sector'])
+            
+            # Retrieve the strict limit of the selected space
+            total_sectors_available = int(self.selected_partition['size_sectors'])
+            
+            item_type = self.selected_partition.get('type', 'partition')
+
+            print(f"Processing {item_type} on {parent_disk}")
+            print(f"Start: {start_sector}, Size: {total_sectors_available} sectors")
+
+            # --- STEP A: CLEANUP ---
+            if item_type == 'partition':
+                GLib.idle_add(self.progress_dialog.set_body, "Unmounting partition...")
+                subprocess.run(['sudo', 'umount', target_device], capture_output=True)
+                subprocess.run(['sudo', 'umount', f"{target_device}*"], capture_output=True)
+                subprocess.run(['sudo', 'swapoff', '-a'], capture_output=True)
+
+                # Delete Old Partition
+                part_num = None
+                match = re.search(r'(\d+)$', target_device)
+                if match: part_num = match.group(1)
+
+                if part_num:
+                    GLib.idle_add(self.progress_dialog.set_body, "Removing old partition...")
+                    subprocess.run(['sudo', 'sfdisk', '--delete', parent_disk, part_num], check=True)
+                    subprocess.run(['sudo', 'partprobe', parent_disk])
+                    time.sleep(1)
+
+            # --- STEP B: CREATION ---
+            GLib.idle_add(self.progress_dialog.set_body, "Creating new partitions...")
+            
+            sfdisk_script = ""
+            EFI_SIZE_SECTORS = 1048576 # 512MB
+            
+            if boot_mode == "uefi":
+                # Calculate remaining space for Root, preventing overflow into next free space
+                root_size_sectors = total_sectors_available - EFI_SIZE_SECTORS
+                
+                # Safety check
+                if root_size_sectors < 1000000: # Approx 500MB
+                    raise Exception("Selected partition is too small for EFI + Root.")
+
+                root_start_sector = start_sector + EFI_SIZE_SECTORS
+                
+                # We specify explicit SIZE for root to stop it from grabbing extra free space
+                sfdisk_script = (
+                    f"start={start_sector}, size={EFI_SIZE_SECTORS}, type=U\n"
+                    f"start={root_start_sector}, size={root_size_sectors}, type=L\n"
+                )
+            else:
+                # Legacy: Use explicit size to stay within bounds
+                sfdisk_script = (
+                    f"start={start_sector}, size={total_sectors_available}, type=L\n"
+                )
+
+            # Use --force to ensure we can write to the gap exactly
+            sfdisk_proc = subprocess.run(
+                ['sudo', 'sfdisk', '--append', '--force', parent_disk],
+                input=sfdisk_script,
+                text=True,
+                capture_output=True
+            )
+
+            if sfdisk_proc.returncode != 0:
+                raise Exception(f"Partition creation failed: {sfdisk_proc.stderr}")
+
+            # Sync
+            GLib.idle_add(self.progress_dialog.set_body, "Synchronizing disks...")
+            subprocess.run(['sudo', 'partprobe', parent_disk])
+            subprocess.run(['sudo', 'udevadm', 'settle'], check=False)
+            time.sleep(2) 
+
+            # --- STEP C: IDENTIFICATION ---
+            GLib.idle_add(self.progress_dialog.set_body, "Verifying partitions...")
+            
+            chk_cmd = ['sudo', 'sfdisk', '-l', '-o', 'DEVICE,START,TYPE', '-J', parent_disk]
+            chk_proc = subprocess.run(chk_cmd, capture_output=True, text=True)
+            part_table = json.loads(chk_proc.stdout)
+            partitions = part_table.get('partitiontable', {}).get('partitions', [])
+            
+            new_efi_device = None
+            new_root_device = None
+            SECTOR_TOLERANCE = 8192 
+
+            if boot_mode == "uefi":
+                for p in partitions:
+                    try:
+                        p_start = int(p.get('start', -1))
+                        p_node = p.get('node') or p.get('device')
+                        if not p_node: continue
+
+                        if abs(p_start - start_sector) < SECTOR_TOLERANCE:
+                            new_efi_device = p_node
+                        
+                        expected_root = start_sector + EFI_SIZE_SECTORS
+                        if abs(p_start - expected_root) < SECTOR_TOLERANCE:
+                            new_root_device = p_node
+                    except ValueError: continue
+            else:
+                for p in partitions:
+                    try:
+                        p_start = int(p.get('start', -1))
+                        p_node = p.get('node') or p.get('device')
+                        if p_node and abs(p_start - start_sector) < SECTOR_TOLERANCE:
+                            new_root_device = p_node
+                    except ValueError: continue
+                
+                if new_root_device:
+                    new_num = ''.join(filter(str.isdigit, os.path.basename(new_root_device)))
+                    subprocess.run(['sudo', 'parted', '-s', parent_disk, 'set', new_num, 'boot', 'on'], check=True)
+
+            # Verification
+            if boot_mode == "uefi" and (not new_efi_device or not new_root_device):
+                raise Exception(f"Detection failed. EFI: {new_efi_device}, Root: {new_root_device}")
+            elif boot_mode == "legacy" and not new_root_device:
+                raise Exception("Detection failed for Root partition.")
+
+            # --- STEP D: FORMATTING ---
+            if boot_mode == "uefi":
+                GLib.idle_add(self.progress_dialog.set_body, "Formatting EFI partition...")
+                subprocess.run(['sudo', 'mkfs.vfat', '-F32', new_efi_device], check=True)
+
+            GLib.idle_add(self.progress_dialog.set_body, "Formatting Root partition...")
+            subprocess.run(['sudo', 'mkfs.ext4', '-F', new_root_device], check=True)
+
+            # Final Settle
+            GLib.idle_add(self.progress_dialog.set_body, "Finalizing configuration...")
+            subprocess.run(['sudo', 'udevadm', 'settle'], check=False)
+            time.sleep(1)
+
+            # --- STEP E: CONFIG UPDATE ---
+            disk_utility_widget.partition_config = {}
+            if boot_mode == "uefi":
+                disk_utility_widget.partition_config[new_efi_device] = {
+                    'mountpoint': '/boot', 'bootable': True, 'filesystem': 'vfat'
+                }
+                disk_utility_widget.partition_config[new_root_device] = {
+                    'mountpoint': '/', 'bootable': False, 'filesystem': 'ext4'
+                }
+            else:
+                disk_utility_widget.partition_config[new_root_device] = {
+                    'mountpoint': '/', 'bootable': True, 'filesystem': 'ext4'
+                }
+
+            disk_utility_widget.selected_disk = parent_disk
+
+            print("Saving partition config and generating fstab...")
+            disk_utility_widget._save_partition_config()
+            disk_utility_widget._generate_and_apply_fstab()
+
+            GLib.idle_add(self._finish_success)
+
+        except Exception as e:
+            print(f"CRITICAL ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            GLib.idle_add(self._finish_error, str(e))
+
+    def _finish_success(self):
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+        self.emit('continue-to-next-page')
+
+    def _finish_error(self, error_msg):
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+        self._show_error_dialog("Partitioning Failed", error_msg)
+
+    def _show_progress_dialog(self, heading, message):
+        dialog = Adw.MessageDialog(heading=heading, body=message, transient_for=self.get_root())
+        spinner = Gtk.Spinner()
+        spinner.start()
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_halign(Gtk.Align.CENTER)
+        box.append(spinner)
+        box.append(Gtk.Label(label="Working..."))
+        dialog.set_extra_child(box)
+        dialog.present()
+        return dialog
+
+    def _show_error_dialog(self, heading, message):
+        dialog = Adw.MessageDialog(heading=heading, body=message, transient_for=self.get_root())
+        dialog.add_response("ok", "OK")
+        dialog.present()
+
+    # Compat properties
+    @property
+    def free_space_radio(self): return None
+    @property
+    def wipe_radio(self): return None
+    @property
+    def manual_radio(self): return None

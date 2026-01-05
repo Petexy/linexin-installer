@@ -7,6 +7,7 @@
 # Set variables
 ROOT="/"  # Adjust this to your actual mount point if different
 USER="${USER:-}"  # Will be set to the username if available
+DE_SELECTION_FILE="/de_selection"
 
 # Color codes for output
 RED='\033[0;31m'
@@ -193,21 +194,49 @@ pacman-key --populate archlinux 2>/dev/null || true
 # Remove specific packages (works offline since they're already installed)
 pacman -R totem --noconfirm 2>/dev/null || true
 pacman -R archinstall --noconfirm 2>/dev/null || true
+pacman -R linexin-installer --noconfirm 2>/dev/null || true
+pacman -R gparted --noconfirm 2>/dev/null || true
+
+#Kinexin Update
+check_de_selection() {
+    if [[ ! -f "$DE_SELECTION_FILE" ]]; then
+        print_error "DE selection file not found at $DE_SELECTION_FILE"
+        return 2
+    fi
+    
+    local de_value
+    de_value=$(cat "$DE_SELECTION_FILE" 2>/dev/null | tr -d '[:space:]')
+    
+    if [[ "$de_value" == "0" ]]; then
+        print_msg "DE selection: Linexin"
+        return 0
+    elif [[ "$de_value" == "1" ]]; then
+        print_msg "DE selection: Kinexin"
+        pacman -Sy kinexin-desktop --noconfirm
+        pacman -Rsc gnome --noconfirm 
+        return 0
+    else
+        print_error "Invalid DE selection value: '$de_value'. Expected 0 or 1"
+        return 2
+    fi
+}
 
 # Update system packages (only if internet is available)
 if check_internet; then
     print_msg "Internet connection available, proceeding with package updates..."
     pacman -Sy archlinux-keyring linux --noconfirm 2>/dev/null || true
     pacman -Syu --noconfirm 2>/dev/null || true
+    check_de_selection
 else
     print_warning "No internet connection available, skipping package updates"
     print_warning "You can run 'pacman -Syu' manually later when internet is available"
 fi
 
+
+
 # Regenerate initramfs
 mkinitcpio -P 2>/dev/null || true
 
-pacman -R linexin-installer --noconfirm 2>/dev/null || true
-pacman -R gparted --noconfirm 2>/dev/null || true
+
 
 print_msg "Post-installation configuration completed successfully!"
