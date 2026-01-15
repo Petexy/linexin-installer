@@ -210,8 +210,7 @@ check_de_selection() {
         return 0
     elif [[ "$de_value" == "1" ]]; then
         print_msg "DE selection: Kinexin"
-        pacman -Sy kinexin-desktop --noconfirm
-        paru -S --overwrite '*' --rebuild --noconfirm kwin-effects-glass-git kwin-effect-rounded-corners-git
+        pacman -Sy kinexin-desktop --noconfirm --overwrite '*'
         pacman -Rsc gnome --noconfirm 
         return 0
     else

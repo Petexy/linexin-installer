@@ -65,7 +65,7 @@ class InstallationTemplateWidget(Gtk.Box):
         self.content_box.append(self.title)
 
         self.subtitle = Gtk.Label()
-        self.subtitle.set_markup('<span size="11500">The selected partition will be replaced with linexin.</span>')
+        self.subtitle.set_markup('<span size="11500">The selected partition will be replaced with Linexin.</span>')
         self.subtitle.set_halign(Gtk.Align.CENTER)
         self.subtitle.add_css_class('dim-label')
         self.content_box.append(self.subtitle)

@@ -370,5 +370,17 @@ translations = {
             "Root partition with remaining space": "具有剩余空间的根分区",
             "Install the system": "安装系统",
             "Removing unused GPU drivers": "正在删除未使用的GPU驱动程序",
-            "Removing unused microcode": "正在删除未使用的微码"
+            "Removing unused microcode": "正在删除未使用的微码",
+            "Select a partition to install": "选择要安装的分区",
+            "The selected partition will be replaced with Linexin.": "选定的分区将被 Linexin 替换。",
+            "Manage your disks": "管理磁盘",
+            "Waiting for partitioning tool...": "正在等待分区工具...",
+            "(Remaining space)": "(剩余空间)",
+            "Will split": "将分割",
+            "into": "为",
+            "The partition list will refresh automatically when you close Disks.": "关闭磁盘工具时，分区列表将自动刷新。",
+            "Linexin (Current One)": "Linexin (当前)",
+            "GNOME-based desktop interface": "基于 GNOME 的桌面界面",
+            "Plasma-based desktop interface": "基于 Plasma 的桌面界面",
+            "Choose Your Option": "选择您的选项"
 }

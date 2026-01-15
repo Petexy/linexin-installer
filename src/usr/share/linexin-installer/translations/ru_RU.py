@@ -370,5 +370,17 @@ translations = {
             "Root partition with remaining space": "Корневой раздел с оставшимся местом",
             "Install the system": "Установить систему",
             "Removing unused GPU drivers": "Удаление неиспользуемых драйверов GPU",
-            "Removing unused microcode": "Удаление неиспользуемого микрокода"            
+            "Removing unused microcode": "Удаление неиспользуемого микрокода",
+            "Select a partition to install": "Выберите раздел для установки",
+            "The selected partition will be replaced with Linexin.": "Выбранный раздел будет заменен на Linexin.",
+            "Manage your disks": "Управление дисками",
+            "Waiting for partitioning tool...": "Ожидание инструмента разметки...",
+            "(Remaining space)": "(Оставшееся место)",
+            "Will split": "Разделит",
+            "into": "на",
+            "The partition list will refresh automatically when you close Disks.": "Список разделов обновится автоматически при закрытии утилиты Диски.",
+            "Linexin (Current One)": "Linexin (Текущий)",
+            "GNOME-based desktop interface": "Интерфейс рабочего стола на базе GNOME",
+            "Plasma-based desktop interface": "Интерфейс рабочего стола на базе Plasma",
+            "Choose Your Option": "Выберите вариант"
 }

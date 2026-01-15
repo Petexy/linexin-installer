@@ -370,5 +370,17 @@ translations = {
             "Root partition with remaining space": "शेष स्थान के साथ रूट पार्टिशन",
             "Install the system": "सिस्टम इंस्टॉल करें",
             "Removing unused GPU drivers": "अनुपयोगी GPU ड्राइवर हटाए जा रहे हैं",
-            "Removing unused microcode": "अनुपयोगी माइक्रोकोड हटाया जा रहा है"
+            "Removing unused microcode": "अनुपयोगी माइक्रोकोड हटाया जा रहा है",
+            "Select a partition to install": "इंस्टॉल करने के लिए एक विभाजन चुनें",
+            "The selected partition will be replaced with Linexin.": "चयनित विभाजन को Linexin से बदल दिया जाएगा।",
+            "Manage your disks": "अपने डिस्क प्रबंधित करें",
+            "Waiting for partitioning tool...": "विभाजन टूल की प्रतीक्षा की जा रही है...",
+            "(Remaining space)": "(शेष जगह)",
+            "Will split": "विभाजित करेगा",
+            "into": "में",
+            "The partition list will refresh automatically when you close Disks.": "डिस्क (Disks) बंद करने पर विभाजन सूची अपने आप रीफ्रेश हो जाएगी।",
+            "Linexin (Current One)": "Linexin (वर्तमान)",
+            "GNOME-based desktop interface": "GNOME-आधारित डेस्कटॉप इंटरफ़ेस",
+            "Plasma-based desktop interface": "Plasma-आधारित डेस्कटॉप इंटरफ़ेस",
+            "Choose Your Option": "अपना विकल्प चुनें"
 }

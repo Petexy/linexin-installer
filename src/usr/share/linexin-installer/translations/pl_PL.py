@@ -391,5 +391,17 @@ translations = {
             "Root partition with remaining space": "Główna partycja z pozostałym miejscem",
             "Install the system": "Zainstaluj System",
             "Removing unused GPU drivers": "Usuwanie nieużywanych sterowników graficznych",
-            "Removing unused microcode": "Usuwanie nieużywanego mikrokodu"
+            "Removing unused microcode": "Usuwanie nieużywanego mikrokodu",
+            "Select a partition to install": "Wybierz partycję do instalacji",
+            "The selected partition will be replaced with Linexin.": "Wybrana partycja zostanie zastąpiona przez Linexin.",
+            "Manage your disks": "Zarządzaj dyskami",
+            "Waiting for partitioning tool...": "Oczekiwanie na narzędzie do partycjonowania...",
+            "(Remaining space)": "(Pozostałe miejsce)",
+            "Will split": "Podzieli",
+            "into": "na",
+            "The partition list will refresh automatically when you close Disks.": "Lista partycji odświeży się automatycznie po zamknięciu programu Dyski.",
+            "Linexin (Current One)": "Linexin (Obecny)",
+            "GNOME-based desktop interface": "Interfejs graficzny oparty na GNOME",
+            "Plasma-based desktop interface": "Interfejs graficzny oparty na Plasma",
+            "Choose Your Option": "Wybierz swoją opcję"
 }

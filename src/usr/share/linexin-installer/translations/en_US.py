@@ -737,5 +737,17 @@ translations = {
             "Root partition with remaining space":  "Root partition with remaining space",
             "Install the system": "Install the system",
             "Removing unused GPU drivers": "Removing unused GPU drivers",
-            "Removing unused microcode": "Removing unused microcode"
+            "Removing unused microcode": "Removing unused microcode",
+            "Select a partition to install": "Select a partition to install",
+            "The selected partition will be replaced with Linexin.": "The selected partition will be replaced with Linexin.",
+            "Manage your disks": "Manage your disks",
+            "Waiting for partitioning tool...": "Waiting for partitioning tool...",
+            "(Remaining space)": "(Remaining space)",
+            "Will split": "Will split",
+            "into": "into",
+            "The partition list will refresh automatically when you close Disks.": "The partition list will refresh automatically when you close Disks.",
+            "Linexin (Current One)": "Linexin (Current One)",
+            "GNOME-based desktop interface": "GNOME-based desktop interface",
+            "Plasma-based desktop interface": "Plasma-based desktop interface",
+            "Choose Your Option": "Choose Your Option"
 }
