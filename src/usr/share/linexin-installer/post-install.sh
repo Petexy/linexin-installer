@@ -160,8 +160,6 @@ mv /etc/mkinitcpio.d/linux-postinstall.preset /etc/mkinitcpio.d/linux.preset 2>/
 mv /usr/share/pixmaps/archlinux-logo-text-dark-postinstall.svg /usr/share/pixmaps/archlinux-logo-text-dark.svg
 mv /usr/share/pixmaps/archlinux-logo-text-postinstall.svg /usr/share/pixmaps/archlinux-logo-text.svg
 
-# Remove specific GNOME extension
-rm -rf /usr/share/gnome-shell/extensions/BringOutSubmenuOfPowerOffLogoutButton@pratap.fastmail.fm 2>/dev/null || true
 
 # Update Plymouth theme
 mv /usr/share/plymouth/themes/spinner/watermark-postinstall.png /usr/share/plymouth/themes/spinner/watermark.png 2>/dev/null || true
@@ -213,6 +211,7 @@ check_de_selection() {
     elif [[ "$de_value" == "1" ]]; then
         print_msg "DE selection: Kinexin"
         pacman -Sy kinexin-desktop --noconfirm
+        paru -S --overwrite '*' --rebuild --noconfirm kwin-effects-glass-git kwin-effect-rounded-corners-git
         pacman -Rsc gnome --noconfirm 
         return 0
     else
