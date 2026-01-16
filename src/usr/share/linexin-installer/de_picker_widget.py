@@ -40,10 +40,16 @@ class DEPicker(Gtk.Box):
         # Basic widget setup - reduced margins and spacing
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
-        self.set_margin_top(25)
-        self.set_margin_bottom(25)
+        
+        # --- MODIFIED SECTION START ---
+        # Center the widget vertically in the parent window
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_vexpand(True)
+        
+        # Horizontal margins
         self.set_margin_start(40)
         self.set_margin_end(40)
+        # --- MODIFIED SECTION END ---
         
         # Setup CSS first
         self.setup_css()
@@ -138,6 +144,8 @@ class DEPicker(Gtk.Box):
         self.connect("map", self.on_widget_mapped)
         
         print("DEBUG: Two box selection widget initialization complete")
+
+    # ... [Rest of the file remains exactly the same] ...
     
     def check_internet_connection(self):
         """Check if internet connection is available"""
@@ -576,5 +584,3 @@ chmod 644 "{config_file}"
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-
-
