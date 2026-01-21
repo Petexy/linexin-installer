@@ -739,4 +739,25 @@ translations = {
             "GNOME-based desktop interface": "GNOME-based desktop interface",
             "Plasma-based desktop interface": "Plasma-based desktop interface",
             "Choose Your Option": "Choose Your Option"
+,
+            # Installation Template Widget (New)
+            "Whole Disk ({})": "Whole Disk ({})",
+            "Uninitialized Disk": "Uninitialized Disk",
+            "Available for Install": "Available for Install",
+            "Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)": "Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)",
+            "Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)": "Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)",
+            "Partitioning": "Partitioning",
+            "Preparing disk...": "Preparing disk...",
+            "Initializing disk partition table...": "Initializing disk partition table...",
+            "Unmounting partition...": "Unmounting partition...",
+            "Removing old partition...": "Removing old partition...",
+            "Creating new partitions...": "Creating new partitions...",
+            "Synchronizing disks...": "Synchronizing disks...",
+            "Verifying partitions...": "Verifying partitions...",
+            "Formatting EFI partition...": "Formatting EFI partition...",
+            "Formatting Root partition...": "Formatting Root partition...",
+            "Finalizing configuration...": "Finalizing configuration...",
+            "Partitioning Failed": "Partitioning Failed",
+            "Could not launch GParted: {}": "Could not launch GParted: {}",
+            "Working...": "Working..."
 }

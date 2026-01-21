@@ -7,6 +7,7 @@ import threading
 import time
 from enum import Enum
 from dataclasses import dataclass
+import queue
 from typing import List, Callable, Optional
 
 
@@ -60,6 +61,7 @@ class InstallationWidget(Gtk.Box):
         self.should_cancel = False
         self.show_details = False
         self.log_buffer = []
+        self.output_queue = queue.Queue()
         self.start_time = None
         
         # Callbacks
@@ -71,138 +73,144 @@ class InstallationWidget(Gtk.Box):
 
     
     def _build_ui(self):
-        """Build the user interface."""
-        
-        # --- Title Section ---
-        self.title = Gtk.Label()
+        """Build the modernized user interface."""
         localization_manager = get_localization_manager()
-        self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installing System")}</span>')
-        self.title.set_halign(Gtk.Align.CENTER)
-        self.append(self.title)
         
-        # --- Main Content Clamp ---
-        clamp = Adw.Clamp(margin_start=12, margin_end=12, maximum_size=700)
+        # --- Main Container ---
+        # We use a clamp to keep things centered and readable
+        clamp = Adw.Clamp(maximum_size=800)
         clamp.set_vexpand(True)
         self.append(clamp)
         
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-        clamp.set_child(content_box)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        main_box.set_margin_top(20)
+        main_box.set_margin_bottom(20)
+        clamp.set_child(main_box)
         
-        # --- Status Section ---
-        status_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        status_card.add_css_class('card')
-        status_card.set_margin_top(10)
-        status_card.set_margin_bottom(10)
-        status_card.set_margin_start(10)
-        status_card.set_margin_end(10)
-        content_box.append(status_card)
+        # --- Status Header (Icon + Title + Description) ---
+        header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        header_box.set_halign(Gtk.Align.CENTER)
+        main_box.append(header_box)
         
-        # Current operation label
+        # Large Status Icon
+        self.status_icon = Gtk.Image.new_from_icon_name("system-run-symbolic")
+        self.status_icon.set_pixel_size(64)
+        self.status_icon.add_css_class('accent')
+        self.status_icon.set_halign(Gtk.Align.CENTER)
+        header_box.append(self.status_icon)
+        
+        # Title
+        self.title = Gtk.Label()
+        self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installing System")}</span>')
+        self.title.set_halign(Gtk.Align.CENTER)
+        self.title.add_css_class('title-1')
+        header_box.append(self.title)
+        
+        # Spinner (centered below title)
+        self.spinner = Gtk.Spinner()
+        self.spinner.set_size_request(32, 32)
+        self.spinner.set_halign(Gtk.Align.CENTER)
+        header_box.append(self.spinner)
+        
+        # Description / Current Step
         self.operation_label = Gtk.Label(label="Preparing installation...")
-        self.operation_label.set_halign(Gtk.Align.START)
-        self.operation_label.set_markup('<b>Preparing installation...</b>')
-        self.operation_label.set_margin_top(10)
-        self.operation_label.set_margin_bottom(10)
-        self.operation_label.set_margin_start(10)
-        self.operation_label.set_margin_end(10)
-        status_card.append(self.operation_label)
+        self.operation_label.set_halign(Gtk.Align.CENTER)
+        self.operation_label.set_wrap(True)
+        self.operation_label.set_justify(Gtk.Justification.CENTER)
+        self.operation_label.add_css_class('heading') 
+        header_box.append(self.operation_label)
         
-        # Current step description
         self.step_description = Gtk.Label(label="Please wait while the system prepares for installation")
-        self.step_description.set_halign(Gtk.Align.START)
+        self.step_description.set_halign(Gtk.Align.CENTER)
         self.step_description.set_wrap(True)
+        self.step_description.set_justify(Gtk.Justification.CENTER)
+        self.step_description.add_css_class('body')
         self.step_description.add_css_class('dim-label')
-        self.step_description.set_margin_top(10)
-        self.step_description.set_margin_bottom(10)
-        self.step_description.set_margin_start(10)
-        self.step_description.set_margin_end(10)
-        status_card.append(self.step_description)
+        header_box.append(self.step_description)
         
         # --- Progress Section ---
         progress_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        content_box.append(progress_box)
+        progress_box.set_margin_start(40)
+        progress_box.set_margin_end(40)
+        main_box.append(progress_box)
         
-        # Progress bar
         self.progress_bar = Gtk.ProgressBar()
-        self.progress_bar.set_show_text(True)
-        self.progress_bar.set_text("0%")
         progress_box.append(self.progress_bar)
         
-        # Step counter
+        meta_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        meta_box.set_halign(Gtk.Align.CENTER)
+        progress_box.append(meta_box)
+        
         self.step_counter = Gtk.Label(label="Step 0 of 0")
         self.step_counter.add_css_class('dim-label')
-        self.step_counter.set_halign(Gtk.Align.CENTER)
-        progress_box.append(self.step_counter)
+        # meta_box.append(self.step_counter) # Optional: Hide if too cluttered
         
-        # Time elapsed
         self.time_label = Gtk.Label(label="Elapsed time: 00:00")
+        self.time_label.add_css_class('numeric')
         self.time_label.add_css_class('dim-label')
-        self.time_label.set_halign(Gtk.Align.CENTER)
-        progress_box.append(self.time_label)
+        meta_box.append(self.time_label)
+
+        # --- Terminal / Details Section ---
+        details_expander = Adw.ExpanderRow() # Use ExpanderRow for modern look? No, standard reveal is better for custom content
         
-        # --- Details Section ---
-        details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        content_box.append(details_box)
+        details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        main_box.append(details_box)
         
-        # Toggle details button
-        self.toggle_details_btn = Gtk.Button(label="Show Details")
+        self.toggle_details_btn = Gtk.Button(label="View Installation Log")
         self.toggle_details_btn.set_halign(Gtk.Align.CENTER)
+        self.toggle_details_btn.add_css_class('pill')
         self.toggle_details_btn.connect("clicked", self._on_toggle_details)
         details_box.append(self.toggle_details_btn)
         
-        # Details revealer
         self.details_revealer = Gtk.Revealer()
         self.details_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        self.details_revealer.set_transition_duration(200)
         details_box.append(self.details_revealer)
         
-        # Terminal output view
         terminal_frame = Gtk.Frame()
-        terminal_frame.set_margin_top(10)
+        terminal_frame.add_css_class('view') # Adwaita view style
         self.details_revealer.set_child(terminal_frame)
         
-        scrolled_window = Gtk.ScrolledWindow()
-        scrolled_window.set_min_content_height(200)
-        scrolled_window.set_max_content_height(400)
-        scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        terminal_frame.set_child(scrolled_window)
+        self.scrolled_window = Gtk.ScrolledWindow()
+        self.scrolled_window.set_min_content_height(150)
+        self.scrolled_window.set_max_content_height(300)
+        self.scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        terminal_frame.set_child(self.scrolled_window)
         
         self.terminal_view = Gtk.TextView()
         self.terminal_view.set_editable(False)
         self.terminal_view.set_monospace(True)
         self.terminal_view.set_wrap_mode(Gtk.WrapMode.CHAR)
-        self.terminal_view.set_margin_top(5)
-        self.terminal_view.set_margin_bottom(5)
-        self.terminal_view.set_margin_start(5)
-        self.terminal_view.set_margin_end(5)
+        self.terminal_view.set_left_margin(12)
+        self.terminal_view.set_right_margin(12)
+        self.terminal_view.set_top_margin(12)
+        self.terminal_view.set_bottom_margin(12)
         
-        # Set terminal-like styling
         self.terminal_buffer = self.terminal_view.get_buffer()
-        self.terminal_view.add_css_class('terminal')
+        self.terminal_view.add_css_class('console') # Custom or adwaita class
         
-        # Create tags for different output types
-        self.terminal_buffer.create_tag("command", weight=Pango.Weight.BOLD, foreground="lightblue")
-        self.terminal_buffer.create_tag("success", foreground="lightgreen")
-        self.terminal_buffer.create_tag("error", foreground="red")
-        self.terminal_buffer.create_tag("info", foreground="yellow")
+        # Create tags
+        self.terminal_buffer.create_tag("command", weight=Pango.Weight.BOLD, foreground="#62a0ea") # Blue
+        self.terminal_buffer.create_tag("success", foreground="#57e389") # Green
+        self.terminal_buffer.create_tag("error", foreground="#ff7b63") # Red
+        self.terminal_buffer.create_tag("info", foreground="#f6d32d") # Yellow
         
-        scrolled_window.set_child(self.terminal_view)
+        self.scrolled_window.set_child(self.terminal_view)
         
         # --- Action Buttons ---
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_box.set_halign(Gtk.Align.CENTER)
-        self.append(button_box)
+        button_box.set_margin_top(12)
+        main_box.append(button_box)
         
-        self.btn_cancel = Gtk.Button(label="Cancel")
+        self.btn_cancel = Gtk.Button(label="Cancel Installation")
         self.btn_cancel.add_css_class('destructive-action')
-        self.btn_cancel.add_css_class('buttons_all')
+        self.btn_cancel.add_css_class('pill')
         self.btn_cancel.connect("clicked", self._on_cancel_clicked)
         button_box.append(self.btn_cancel)
         
-        self.btn_continue = Gtk.Button(label="Continue")
+        self.btn_continue = Gtk.Button(label="Restart Computer")
         self.btn_continue.add_css_class('suggested-action')
-        self.btn_continue.add_css_class('buttons_all')
-        self.btn_continue.set_sensitive(False)
+        self.btn_continue.add_css_class('pill')
         self.btn_continue.set_visible(False)
         self.btn_continue.connect("clicked", self._on_continue_clicked)
         button_box.append(self.btn_continue)
@@ -913,6 +921,10 @@ class InstallationWidget(Gtk.Box):
 
         
         # Start installation thread
+        self.spinner.start()
+        # Start queue processing (100ms interval)
+        GLib.timeout_add(100, self._process_terminal_queue)
+        
         self.installation_thread = threading.Thread(target=self._run_installation)
         self.installation_thread.daemon = True
         self.installation_thread.start()
@@ -932,8 +944,8 @@ class InstallationWidget(Gtk.Box):
             # Update UI
             GLib.idle_add(self._update_step_info, step, i)
             
-            # Log command execution
-            GLib.idle_add(self._append_to_terminal, f"$ {' '.join(step.command)}", "command")
+            # Log command execution - PUSH TO QUEUE
+            self.output_queue.put((f"$ {' '.join(step.command)}", "command"))
             
             try:
                 # Execute command
@@ -955,7 +967,7 @@ class InstallationWidget(Gtk.Box):
                     
                     output = process.stdout.readline()
                     if output:
-                        GLib.idle_add(self._append_to_terminal, output.rstrip(), None)
+                        self.output_queue.put((output.rstrip(), None))
                     
                     # Check if process has finished
                     if process.poll() is not None:
@@ -964,26 +976,26 @@ class InstallationWidget(Gtk.Box):
                 # Get any remaining output
                 stdout, stderr = process.communicate()
                 if stdout:
-                    GLib.idle_add(self._append_to_terminal, stdout.rstrip(), None)
+                    self.output_queue.put((stdout.rstrip(), None))
                 if stderr:
-                    GLib.idle_add(self._append_to_terminal, stderr.rstrip(), "error")
+                    self.output_queue.put((stderr.rstrip(), "error"))
                 
                 # Check return code
                 if process.returncode != 0:
                     if step.critical:
                         error_msg = f"Step failed: {step.label} (exit code: {process.returncode})"
-                        GLib.idle_add(self._append_to_terminal, error_msg, "error")
+                        self.output_queue.put((error_msg, "error"))
                         GLib.idle_add(self._on_installation_error, error_msg)
                         return
                     else:
                         warning_msg = f"Warning: Non-critical step failed: {step.label}"
-                        GLib.idle_add(self._append_to_terminal, warning_msg, "info")
+                        self.output_queue.put((warning_msg, "info"))
                 else:
-                    GLib.idle_add(self._append_to_terminal, f"✓ {step.label} completed successfully", "success")
+                    self.output_queue.put((f"✓ {step.label} completed successfully", "success"))
                 
             except Exception as e:
                 error_msg = f"Error executing step '{step.label}': {str(e)}"
-                GLib.idle_add(self._append_to_terminal, error_msg, "error")
+                self.output_queue.put((error_msg, "error"))
                 if step.critical:
                     GLib.idle_add(self._on_installation_error, error_msg)
                     return
@@ -993,8 +1005,8 @@ class InstallationWidget(Gtk.Box):
             progress = completed_weight / total_weight
             GLib.idle_add(self._update_progress, progress)
             
-            # Small delay between steps for visibility
-            time.sleep(0.5)
+            # Reduced delay
+            time.sleep(0.1)
         
         # Installation complete
         GLib.idle_add(self._on_installation_complete)
@@ -1002,7 +1014,8 @@ class InstallationWidget(Gtk.Box):
     def _update_step_info(self, step: InstallationStep, index: int):
         """Update the UI with current step information."""
         localization_manager = get_localization_manager()
-        self.operation_label.set_markup(f'<b>{localization_manager.get_text(step.label)}</b>')
+        localization_manager = get_localization_manager()
+        self.operation_label.set_markup(f'<span size="large" weight="bold">{localization_manager.get_text(step.label)}</span>')
         self.step_description.set_text(localization_manager.get_text(step.description))
         self.step_counter.set_text(f"{localization_manager.get_text('Step')} {index + 1} {localization_manager.get_text('of')} {len(self.installation_steps)}")
         return False
@@ -1013,21 +1026,62 @@ class InstallationWidget(Gtk.Box):
         self.progress_bar.set_text(f"{int(progress * 100)}%")
         return False
     
-    def _append_to_terminal(self, text: str, tag: Optional[str]):
-        """Append text to the terminal view."""
+    
+    def _process_terminal_queue(self):
+        """Process buffered terminal output in batches to prevent UI lag."""
+        if self.output_queue.empty():
+            return True 
+            
+        lines_to_add = []
+        try:
+            for _ in range(500):
+                item = self.output_queue.get_nowait()
+                lines_to_add.append(item)
+        except queue.Empty:
+            pass
+                
+        if not lines_to_add:
+            return True
+        
+        # Smart Autoscroll Check
+        # Check if we are at the bottom BEFORE adding new content
+        v_adj = self.scrolled_window.get_vadjustment()
+        distance_from_bottom = v_adj.get_upper() - v_adj.get_value() - v_adj.get_page_size()
+        # Epsilon of 1.0 ensures slight floating point differences don't break logic
+        should_scroll = distance_from_bottom < 50.0 # Tolerance of 50px
+            
+        # Bulk insert
         end_iter = self.terminal_buffer.get_end_iter()
+        for text, tag in lines_to_add:
+             if tag:
+                 self.terminal_buffer.insert_with_tags_by_name(end_iter, text + "\n", tag)
+             else:
+                 self.terminal_buffer.insert(end_iter, text + "\n")
+             self.log_buffer.append(text)
+                 
+        # Scroll ONLY if we were already at the bottom
+        if should_scroll:
+            # We must yield processing to allow the view to calculate new height?
+            # Actually, insert() updates the buffer immediately, but upper limit might update async layout
+            # However, scrolling to the NEW end_iter usually works
+            
+            # Using an idle scroll ensures the generic layout matches
+            # self.terminal_view.scroll_to_iter(self.terminal_buffer.get_end_iter(), 0.0, False, 0.0, 0.0)
+            
+            # Better approach for reliable bottom scroll with TextView:
+            GLib.idle_add(self._scroll_to_bottom)
         
-        if tag:
-            self.terminal_buffer.insert_with_tags_by_name(end_iter, text + "\n", tag)
-        else:
-            self.terminal_buffer.insert(end_iter, text + "\n")
+        return True 
         
-        # Auto-scroll to bottom
-        self.terminal_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 0.0)
+    def _scroll_to_bottom(self):
+        """Scroll terminal to bottom."""
+        adj = self.scrolled_window.get_vadjustment()
+        adj.set_value(adj.get_upper() - adj.get_page_size())
+        return False 
         
-        # Also add to log buffer
-        self.log_buffer.append(text)
-        
+    def _append_to_terminal(self, text: str, tag: Optional[str]):
+        """Legacy method: direct append (kept for non-threaded calls if any)."""
+        self.output_queue.put((text, tag))
         return False
     
     def _update_timer(self):
@@ -1106,26 +1160,17 @@ class InstallationWidget(Gtk.Box):
         
         if self.on_complete_callback:
             self.on_complete_callback()
+            
+        self.spinner.stop()
+        self.status_icon.set_from_icon_name("emblem-ok-symbolic")
+        self.status_icon.remove_css_class('accent')
+        self.status_icon.add_css_class('success')
         
         return False
 
 
         
-        # Update buttons
-        self.btn_cancel.set_visible(False)
-        self.btn_continue.set_visible(True)
-        self.btn_continue.set_sensitive(True)
-        self.btn_continue.set_label("Finish")
-        
-        # Add success message to terminal
-        self._append_to_terminal("\n" + "="*50, "success")
-        self._append_to_terminal("INSTALLATION COMPLETED SUCCESSFULLY!", "success")
-        self._append_to_terminal("="*50, "success")
-        
-        if self.on_complete_callback:
-            self.on_complete_callback()
-        
-        return False
+
     
     def _on_installation_error(self, error_msg: str):
         """Handle installation error."""
@@ -1152,6 +1197,11 @@ class InstallationWidget(Gtk.Box):
         
         if self.on_error_callback:
             self.on_error_callback(error_msg)
+            
+        self.spinner.stop()
+        self.status_icon.set_from_icon_name("dialog-error-symbolic")
+        self.status_icon.remove_css_class('accent')
+        self.status_icon.add_css_class('error')
         
         return False
     
@@ -1170,6 +1220,9 @@ class InstallationWidget(Gtk.Box):
         self.btn_continue.set_label(localization_manager.get_text("Restart"))
         
         self._append_to_terminal(f"\n{localization_manager.get_text('Installation cancelled by user.')}", "info")
+        
+        self.spinner.stop()
+        self.status_icon.set_from_icon_name("process-stop-symbolic")
         
         return False
     

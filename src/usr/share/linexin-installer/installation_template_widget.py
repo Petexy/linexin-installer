@@ -60,12 +60,12 @@ class InstallationTemplateWidget(Gtk.Box):
 
         # Title & Subtitle
         self.title = Gtk.Label()
-        self.title.set_markup('<span size="32000" weight="300">Select a partition to install</span>')
+        self.title.set_markup('<span size="32000" weight="300">{}</span>'.format(_("Select a partition to install")))
         self.title.set_halign(Gtk.Align.CENTER)
         self.content_box.append(self.title)
 
         self.subtitle = Gtk.Label()
-        self.subtitle.set_markup('<span size="11500">The selected partition will be replaced with Linexin.</span>')
+        self.subtitle.set_markup('<span size="11500">{}</span>'.format(_("The selected partition will be replaced with Linexin.")))
         self.subtitle.set_halign(Gtk.Align.CENTER)
         self.subtitle.add_css_class('dim-label')
         self.content_box.append(self.subtitle)
@@ -107,12 +107,12 @@ class InstallationTemplateWidget(Gtk.Box):
         self.remove(button_box)
         self.content_box.append(button_box)
 
-        self.btn_back = Gtk.Button(label="Back")
+        self.btn_back = Gtk.Button(label=_("Back"))
         self.btn_back.add_css_class('buttons_all')
         self.btn_back.set_size_request(140, 40)
         button_box.append(self.btn_back)
 
-        self.btn_proceed = Gtk.Button(label="Continue")
+        self.btn_proceed = Gtk.Button(label=_("Continue"))
         self.btn_proceed.add_css_class('suggested-action')
         self.btn_proceed.add_css_class('buttons_all')
         self.btn_proceed.set_size_request(140, 40)
@@ -135,10 +135,10 @@ class InstallationTemplateWidget(Gtk.Box):
         spinner.set_size_request(64, 64)
         spinner.start()
         
-        label = Gtk.Label(label="Waiting for partitioning tool...")
+        label = Gtk.Label(label=_("Waiting for partitioning tool..."))
         label.add_css_class("title-2")
         
-        desc = Gtk.Label(label="The partition list will refresh automatically when you close Disks.")
+        desc = Gtk.Label(label=_("The partition list will refresh automatically when you close Disks."))
         desc.add_css_class("dim-label")
         
         waiting_box.append(spinner)
@@ -161,7 +161,7 @@ class InstallationTemplateWidget(Gtk.Box):
         except GLib.Error as e:
             # Fallback if launch fails
             self.view_stack.set_visible_child_name("main")
-            self._show_error_dialog("Error", f"Could not launch GParted: {e.message}")
+            self._show_error_dialog(_("Error"), _("Could not launch GParted: {}").format(e.message))
 
     def _on_gparted_closed(self, process, result):
         """Callback when GParted closes"""
@@ -207,50 +207,131 @@ class InstallationTemplateWidget(Gtk.Box):
         self._create_partition_cards()
 
     def _detect_partitions(self):
-        """Detect partitions and Free Space > 15GB with precise sector counts"""
+        """Detect partitions, Free Space, and Whole Disks > 25GB"""
         self.partitions = []
+        
+        # Debug logging setup
+        try:
+            log_file = open("/tmp/installer_debug.log", "w")
+            def log(msg):
+                print(msg) # Still print to stdout for redundancy
+                log_file.write(msg + "\n")
+                log_file.flush()
+        except Exception:
+            def log(msg): print(msg)
+
+        log("--- Starting Partition Detection ---")
+        
         try:
             # 1. Standard Partition Detection (lsblk)
-            cmd = ['lsblk', '-J', '-o', 'NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,TYPE,PKNAME,START']
+            # Added -b to get size in bytes directly
+            cmd = ['lsblk', '-J', '-b', '-o', 'NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,TYPE,PKNAME,START']
+            log(f"Running: {' '.join(cmd)}")
             process = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             parent_disks = set()
 
+            def _process_node(node, root_parent_disk):
+                """Recursive helper to process partitions"""
+                # If we encounter a disk at top level, track it
+                if node.get('type') == 'disk':
+                    disk_path = f"/dev/{node['name']}"
+                    parent_disks.add(disk_path)
+                    log(f"Found disk: {disk_path}")
+                    if root_parent_disk is None:
+                        root_parent_disk = disk_path
+                    
+                    # CHECK FOR WHOLE DISK (No partitions)
+                    # If this disk has no children that are partitions, treat as raw disk
+                    has_partitions = False
+                    if 'children' in node:
+                         for child in node['children']:
+                             if child.get('type') == 'part':
+                                 has_partitions = True
+                                 break
+                    
+                    if not has_partitions:
+                        # Process as Whole Disk
+                        try:
+                            size_bytes = int(node.get('size', 0))
+                        except (ValueError, TypeError):
+                            size_bytes = 0
+                        
+                        size_gb = size_bytes // (1024**3)
+                        size_sectors = size_bytes // 512
+                        
+                        log(f"Checking Whole Disk {disk_path}: Size={size_gb}GB")
+                        
+                        if size_gb >= 25:
+                            log(f"  -> ACCEPTED Whole Disk {disk_path}")
+                            self.partitions.append({
+                                'type': 'wholedisk',
+                                'device': disk_path,
+                                'name': node['name'],
+                                'display_name': _("Whole Disk ({})").format(node['name']),
+                                'size_gb': size_gb,
+                                'size_sectors': size_sectors,
+                                'start_sector': 2048, # Default start for raw disk
+                                'parent_disk': disk_path
+                            })
+                        else:
+                            log(f"  -> REJECTED Whole Disk {disk_path} (Size < 25GB)")
+
+                # If it is a partition, process it
+                if node.get('type') == 'part':
+                    part_path = f"/dev/{node['name']}"
+                    
+                    # Determine parent disk
+                    parent_disk_path = root_parent_disk
+                    if not parent_disk_path and node.get('pkname'):
+                         parent_disk_path = f"/dev/{node['pkname']}"
+
+                    # Get size directly from lsblk JSON
+                    try:
+                        size_bytes = int(node.get('size', 0))
+                    except (ValueError, TypeError):
+                        size_bytes = 0
+                        
+                    size_gb = size_bytes // (1024**3)
+                    size_sectors = size_bytes // 512
+
+                    log(f"Checking partition {part_path}: Size={size_gb}GB ({size_bytes} bytes), Parent={parent_disk_path}")
+
+                    if size_gb >= 25: 
+                        log(f"  -> ACCEPTED {part_path}")
+                        self.partitions.append({
+                            'type': 'partition',
+                            'device': part_path,
+                            'name': node['name'],
+                            'display_name': node.get('label') or node.get('name'),
+                            'size_gb': size_gb,
+                            'size_sectors': size_sectors,
+                            'start_sector': node.get('start'),
+                            'parent_disk': parent_disk_path
+                        })
+                    else:
+                         log(f"  -> REJECTED {part_path} (Size < 25GB)")
+
+                # Recurse into children
+                if 'children' in node:
+                    for child in node['children']:
+                        _process_node(child, root_parent_disk)
+
             if process.returncode == 0:
-                data = json.loads(process.stdout)
-                for device in data.get('blockdevices', []):
-                    if device.get('type') == 'disk':
-                        parent_disks.add(f"/dev/{device['name']}")
-
-                    if 'children' in device:
-                        for partition in device['children']:
-                            if partition.get('type') == 'part':
-                                part_path = f"/dev/{partition['name']}"
-                                # Get exact size in bytes to calculate sectors
-                                size_cmd = ['sudo', 'blockdev', '--getsize64', part_path]
-                                size_proc = subprocess.run(size_cmd, capture_output=True, text=True)
-
-                                if size_proc.returncode == 0:
-                                    size_bytes = int(size_proc.stdout.strip())
-                                    size_gb = size_bytes // (1024**3)
-                                    # Assume 512-byte sectors for standard calculation
-                                    size_sectors = size_bytes // 512
-
-                                    if size_gb >= 25: 
-                                        self.partitions.append({
-                                            'type': 'partition',
-                                            'device': part_path,
-                                            'name': partition['name'],
-                                            'display_name': partition.get('label') or partition.get('name'),
-                                            'size_gb': size_gb,
-                                            'size_sectors': size_sectors,
-                                            'start_sector': partition.get('start'),
-                                            'parent_disk': f"/dev/{partition['pkname']}"
-                                        })
+                try:
+                    data = json.loads(process.stdout)
+                    for device in data.get('blockdevices', []):
+                        _process_node(device, None)
+                except json.JSONDecodeError as e:
+                     log(f"JSON Decode Error: {e}")
+                     log(f"Output: {process.stdout}")
+            else:
+                 log(f"lsblk failed: {process.stderr}")
 
             # 2. Free Space Detection (parted)
             for parent_disk in parent_disks:
                 try:
+                    log(f"Scanning free space on {parent_disk}")
                     # Output machine readable, unit sectors
                     p_cmd = ['sudo', 'parted', '-m', parent_disk, 'unit', 's', 'print', 'free']
                     p_proc = subprocess.run(p_cmd, capture_output=True, text=True)
@@ -266,25 +347,40 @@ class InstallationTemplateWidget(Gtk.Box):
                                 size_str = parts[3].replace('s', '')
                                 start_str = parts[1].replace('s', '')
                                 
-                                size_sectors = int(size_str)
+                                try:
+                                    size_sectors = int(size_str)
+                                except ValueError:
+                                    continue
+                                    
                                 size_gb = (size_sectors * 512) // (1024**3)
                                 
-                                if size_gb >= 15: # <--- CHANGED FROM 10 to 15
+                                log(f"Checking Free Space on {parent_disk}: Size={size_gb}GB")
+
+                                if size_gb >= 25: # Checked against user request
+                                    log(f"  -> ACCEPTED Free Space")
                                     self.partitions.append({
                                         'type': 'freespace',
                                         'device': 'Unallocated Space',
                                         'name': 'Free Space',
-                                        'display_name': 'Free Space',
+                                        'display_name': _("Free Space"),
                                         'size_gb': size_gb,
                                         'size_sectors': size_sectors,
                                         'start_sector': start_str,
                                         'parent_disk': parent_disk
                                     })
+                                else:
+                                    log("  -> REJECTED Free Space (Size < 25GB)")
                 except Exception as e:
-                    print(f"Failed to scan free space on {parent_disk}: {e}")
+                    log(f"Failed to scan free space on {parent_disk}: {e}")
 
         except Exception as e:
-            print(f"Error in detection: {e}")
+            log(f"Error in detection: {e}")
+            import traceback
+            log(traceback.format_exc())
+            
+        try:
+            log_file.close()
+        except: pass
 
     def _create_partition_cards(self):
         if not self.partitions:
@@ -302,6 +398,8 @@ class InstallationTemplateWidget(Gtk.Box):
             icon_name = "drive-harddisk-symbolic"
             if partition.get('type') == 'freespace':
                 icon_name = "list-add-symbolic"
+            elif partition.get('type') == 'wholedisk':
+                icon_name = "drive-harddisk-symbolic" # Use disk icon
 
             icon = Gtk.Image.new_from_icon_name(icon_name)
             icon.set_pixel_size(72)
@@ -319,7 +417,12 @@ class InstallationTemplateWidget(Gtk.Box):
             card_box.append(size_lbl)
 
             # Show "Available" instead of path for free space
-            sub_text = partition['device'] if partition['type'] == 'partition' else "Available for Install"
+            sub_text = partition['device'] 
+            if partition['type'] == 'freespace':
+                sub_text = _("Available for Install")
+            elif partition['type'] == 'wholedisk':
+                sub_text = _("Uninitialized Disk")
+                
             path_lbl = Gtk.Label(label=sub_text)
             path_lbl.add_css_class('caption')
             card_box.append(path_lbl)
@@ -356,12 +459,9 @@ class InstallationTemplateWidget(Gtk.Box):
 
         boot_mode = self._detect_boot_mode()
         if boot_mode == "uefi":
-            msg = (f"Will split <b>{self.selected_partition['device']}</b> into:\n"
-                   f"1. <b>EFI Boot</b> (512 MB)\n"
-                   f"2. <b>Root</b> (Remaining space)")
+            msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
         else:
-            msg = (f"Will replace <b>{self.selected_partition['device']}</b> with:\n"
-                   f"1. <b>Root</b> (Full available space, Bootable)")
+            msg = _("Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)").format(self.selected_partition['device'])
 
         self.info_label.set_markup(msg)
         self.btn_proceed.set_sensitive(True)
@@ -376,7 +476,7 @@ class InstallationTemplateWidget(Gtk.Box):
     def execute_template(self, disk_utility_widget):
         """Starts the threading process for partitioning"""
         # Show the progress dialog immediately on the main thread
-        self.progress_dialog = self._show_progress_dialog("Partitioning", "Preparing disk...")
+        self.progress_dialog = self._show_progress_dialog(_("Partitioning"), _("Preparing disk..."))
         
         # Start the heavy lifting in a separate thread
         thread = threading.Thread(target=self._split_and_format_partition_thread, args=(disk_utility_widget,))
@@ -411,9 +511,24 @@ class InstallationTemplateWidget(Gtk.Box):
             print(f"Processing {item_type} on {parent_disk}")
             print(f"Start: {start_sector}, Size: {total_sectors_available} sectors")
 
-            # --- STEP A: CLEANUP ---
+            # --- STEP A: INITIALIZE DISK IF NEEDED ---
+            if item_type == 'wholedisk':
+                GLib.idle_add(self.progress_dialog.set_body, _("Initializing disk partition table..."))
+                label_type = "gpt" if boot_mode == "uefi" else "msdos"
+                
+                # Create fresh partition table
+                subprocess.run(['sudo', 'parted', '-s', parent_disk, 'mklabel', label_type], check=True)
+                subprocess.run(['sudo', 'partprobe', parent_disk])
+                time.sleep(1)
+                
+                # Start sector 2048 is safe for new tables
+                start_sector = 2048
+                # Adjust available sectors slightly to account for table overhead if needed, 
+                # but sfdisk usually handles "size" relative to start well.
+
+            # --- STEP B: CLEANUP (If it's an existing partition) ---
             if item_type == 'partition':
-                GLib.idle_add(self.progress_dialog.set_body, "Unmounting partition...")
+                GLib.idle_add(self.progress_dialog.set_body, _("Unmounting partition..."))
                 subprocess.run(['sudo', 'umount', target_device], capture_output=True)
                 subprocess.run(['sudo', 'umount', f"{target_device}*"], capture_output=True)
                 subprocess.run(['sudo', 'swapoff', '-a'], capture_output=True)
@@ -424,24 +539,30 @@ class InstallationTemplateWidget(Gtk.Box):
                 if match: part_num = match.group(1)
 
                 if part_num:
-                    GLib.idle_add(self.progress_dialog.set_body, "Removing old partition...")
+                    GLib.idle_add(self.progress_dialog.set_body, _("Removing old partition..."))
                     subprocess.run(['sudo', 'sfdisk', '--delete', parent_disk, part_num], check=True)
                     subprocess.run(['sudo', 'partprobe', parent_disk])
                     time.sleep(1)
 
-            # --- STEP B: CREATION ---
-            GLib.idle_add(self.progress_dialog.set_body, "Creating new partitions...")
+            # --- STEP C: CREATION ---
+            GLib.idle_add(self.progress_dialog.set_body, _("Creating new partitions..."))
             
             sfdisk_script = ""
             EFI_SIZE_SECTORS = 1048576 # 512MB
             
             if boot_mode == "uefi":
-                # Calculate remaining space for Root, preventing overflow into next free space
+                # Calculate remaining space for Root
                 root_size_sectors = total_sectors_available - EFI_SIZE_SECTORS
+                # Account for start offset if we are on a fresh disk (total size is whole disk)
+                if item_type == 'wholedisk':
+                     # If whole disk, total_sectors_available is the DISK size. 
+                     # We start at 2048. So we lose 2048 sectors.
+                     root_size_sectors = total_sectors_available - EFI_SIZE_SECTORS - 2048 - 34 # approx overhead
+                     
                 
                 # Safety check
                 if root_size_sectors < 1000000: # Approx 500MB
-                    raise Exception("Selected partition is too small for EFI + Root.")
+                    raise Exception("Selected space is too small for EFI + Root.")
 
                 root_start_sector = start_sector + EFI_SIZE_SECTORS
                 
@@ -452,8 +573,12 @@ class InstallationTemplateWidget(Gtk.Box):
                 )
             else:
                 # Legacy: Use explicit size to stay within bounds
+                current_size = total_sectors_available
+                if item_type == 'wholedisk':
+                    current_size = total_sectors_available - 2048
+                
                 sfdisk_script = (
-                    f"start={start_sector}, size={total_sectors_available}, type=L\n"
+                    f"start={start_sector}, size={current_size}, type=L\n"
                 )
 
             # Use --force to ensure we can write to the gap exactly
@@ -468,13 +593,13 @@ class InstallationTemplateWidget(Gtk.Box):
                 raise Exception(f"Partition creation failed: {sfdisk_proc.stderr}")
 
             # Sync
-            GLib.idle_add(self.progress_dialog.set_body, "Synchronizing disks...")
+            GLib.idle_add(self.progress_dialog.set_body, _("Synchronizing disks..."))
             subprocess.run(['sudo', 'partprobe', parent_disk])
             subprocess.run(['sudo', 'udevadm', 'settle'], check=False)
             time.sleep(2) 
 
             # --- STEP C: IDENTIFICATION ---
-            GLib.idle_add(self.progress_dialog.set_body, "Verifying partitions...")
+            GLib.idle_add(self.progress_dialog.set_body, _("Verifying partitions..."))
             
             chk_cmd = ['sudo', 'sfdisk', '-l', '-o', 'DEVICE,START,TYPE', '-J', parent_disk]
             chk_proc = subprocess.run(chk_cmd, capture_output=True, text=True)
@@ -520,14 +645,14 @@ class InstallationTemplateWidget(Gtk.Box):
 
             # --- STEP D: FORMATTING ---
             if boot_mode == "uefi":
-                GLib.idle_add(self.progress_dialog.set_body, "Formatting EFI partition...")
+                GLib.idle_add(self.progress_dialog.set_body, _("Formatting EFI partition..."))
                 subprocess.run(['sudo', 'mkfs.vfat', '-F32', new_efi_device], check=True)
 
-            GLib.idle_add(self.progress_dialog.set_body, "Formatting Root partition...")
+            GLib.idle_add(self.progress_dialog.set_body, _("Formatting Root partition..."))
             subprocess.run(['sudo', 'mkfs.ext4', '-F', new_root_device], check=True)
 
             # Final Settle
-            GLib.idle_add(self.progress_dialog.set_body, "Finalizing configuration...")
+            GLib.idle_add(self.progress_dialog.set_body, _("Finalizing configuration..."))
             subprocess.run(['sudo', 'udevadm', 'settle'], check=False)
             time.sleep(1)
 
@@ -567,7 +692,7 @@ class InstallationTemplateWidget(Gtk.Box):
     def _finish_error(self, error_msg):
         if hasattr(self, 'progress_dialog'):
             self.progress_dialog.close()
-        self._show_error_dialog("Partitioning Failed", error_msg)
+        self._show_error_dialog(_("Partitioning Failed"), error_msg)
 
     def _show_progress_dialog(self, heading, message):
         dialog = Adw.MessageDialog(heading=heading, body=message, transient_for=self.get_root())
@@ -576,7 +701,7 @@ class InstallationTemplateWidget(Gtk.Box):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         box.set_halign(Gtk.Align.CENTER)
         box.append(spinner)
-        box.append(Gtk.Label(label="Working..."))
+        box.append(Gtk.Label(label=_("Working...")))
         dialog.set_extra_child(box)
         dialog.present()
         return dialog
