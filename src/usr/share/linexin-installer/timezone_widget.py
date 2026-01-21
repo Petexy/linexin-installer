@@ -5,12 +5,28 @@ import subprocess
 import json
 import os
 
+import gettext
+import locale
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gtk, Adw, Gio, GLib, GObject, WebKit
 from simple_localization_manager import get_localization_manager
 
+# --- Localization Setup ---
+APP_NAME = "linexin-installer"
+LOCALE_DIR = "/usr/share/locale"
+
+# Set initial language (will default to system language if not specified)
+try:
+    locale.setlocale(locale.LC_ALL, '')
+except locale.Error:
+    pass
+
+locale.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.textdomain(APP_NAME)
+_ = gettext.gettext
 
 class TimezoneWidget(Gtk.Box):
     """
@@ -31,7 +47,7 @@ class TimezoneWidget(Gtk.Box):
 
         # --- Title Label ---
         self.title = Gtk.Label()
-        self.title.set_markup('<span size="xx-large" weight="bold">Select Your Timezone</span>')
+        self.title.set_markup('<span size="xx-large" weight="bold">' + _("Select Your Timezone") + '</span>')
         self.title.set_halign(Gtk.Align.CENTER)
         self.append(self.title)
 
@@ -44,17 +60,17 @@ class TimezoneWidget(Gtk.Box):
         clamp.set_child(content_box)
 
         # --- Subtitle Label ---
-        subtitle_label="Choose a city in your region. This will be used to set the clock."
+        subtitle_label = _("Choose a city in your region. This will be used to set the clock.")
         self.subtitle = Gtk.Label(
-        label=subtitle_label,
-        halign=Gtk.Align.CENTER
+            label=subtitle_label,
+            halign=Gtk.Align.CENTER
         )
         self.subtitle.add_css_class('dim-label')
         content_box.append(self.subtitle)
 
         # --- Search Entry ---
         self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Search for your city or region...")
+        self.search_entry.set_placeholder_text(_("Search for your city or region..."))
         self.search_entry.connect("search-changed", self.on_search_changed)
         content_box.append(self.search_entry)
 

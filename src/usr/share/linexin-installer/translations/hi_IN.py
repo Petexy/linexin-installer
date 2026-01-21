@@ -403,4 +403,6 @@ translations = {
             "Partitioning Failed": "विभाजन विफल रहा",
             "Could not launch GParted: {}": "GParted लॉन्च नहीं कर सका: {}",
             "Working...": "कार्य हो रहा है...",
+    "Select the language you want to use for the system.": "सिस्टम के लिए आप जो भाषा उपयोग करना चाहते हैं, उसका चयन करें।",
+    "View Installation Log": "स्थापना लॉग देखें",
 }

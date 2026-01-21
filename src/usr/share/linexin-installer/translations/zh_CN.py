@@ -403,4 +403,6 @@ translations = {
             "Partitioning Failed": "分区失败",
             "Could not launch GParted: {}": "无法启动 GParted：{}",
             "Working...": "正在处理...",
+    "Select the language you want to use for the system.": "选择您要在系统中使用的语言。",
+    "View Installation Log": "查看安装日志",
 }

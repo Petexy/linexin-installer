@@ -41,7 +41,7 @@ class KeyboardLayoutWidget(Gtk.Box):
 
         # --- UI Elements ---
         self.title = Gtk.Label()
-        self.title.set_markup('<span size="xx-large" weight="bold">Select Your Keyboard Layout</span>')
+        self.title.set_markup('<span size="xx-large" weight="bold">' + _("Select Your Keyboard Layout") + '</span>')
         self.title.set_halign(Gtk.Align.CENTER)
         self.append(self.title)
 
@@ -55,7 +55,7 @@ class KeyboardLayoutWidget(Gtk.Box):
 
                 # --- Subtitle Label ---
         self.subtitle = Gtk.Label(
-        label="You can add more after installation.",
+        label=_("You can add more after installation."),
         halign=Gtk.Align.CENTER
         )
         self.subtitle.add_css_class('dim-label')

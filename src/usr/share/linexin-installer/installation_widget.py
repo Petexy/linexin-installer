@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Pango, GObject
 from simple_localization_manager import get_localization_manager
+_ = get_localization_manager().get_text
 
 class InstallationState(Enum):
     """Enumeration of installation states."""
@@ -156,7 +157,7 @@ class InstallationWidget(Gtk.Box):
         details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         main_box.append(details_box)
         
-        self.toggle_details_btn = Gtk.Button(label="View Installation Log")
+        self.toggle_details_btn = Gtk.Button(label=_("View Installation Log"))
         self.toggle_details_btn.set_halign(Gtk.Align.CENTER)
         self.toggle_details_btn.add_css_class('pill')
         self.toggle_details_btn.connect("clicked", self._on_toggle_details)

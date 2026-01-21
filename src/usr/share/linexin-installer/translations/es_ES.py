@@ -403,4 +403,6 @@ translations = {
             "Partitioning Failed": "Fallo en el Particionado",
             "Could not launch GParted: {}": "No se pudo iniciar GParted: {}",
             "Working...": "Trabajando...",
+    "Select the language you want to use for the system.": "Seleccione el idioma que desea utilizar para el sistema.",
+    "View Installation Log": "Ver registro de instalación",
 }

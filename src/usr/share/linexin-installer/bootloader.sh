@@ -486,23 +486,46 @@ EOF
         local esp_disk=""
         local esp_part_num=""
         
-        if [[ "$esp_device" =~ ^/dev/nvme[0-9]+n[0-9]+p[0-9]+$ ]]; then
-            esp_disk=$(echo "$esp_device" | sed 's/p[0-9]*$//')
-            esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
-            print_debug "NVMe device detected: disk=$esp_disk part=$esp_part_num"
-        elif [[ "$esp_device" =~ ^/dev/mmcblk[0-9]+p[0-9]+$ ]]; then
-            esp_disk=$(echo "$esp_device" | sed 's/p[0-9]*$//')
-            esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
-            print_debug "MMC device detected: disk=$esp_disk part=$esp_part_num"
-        elif [[ "$esp_device" =~ ^/dev/[sh]d[a-z]+[0-9]+$ ]]; then
-            esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
-            esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
-            print_debug "SATA/SCSI device detected: disk=$esp_disk part=$esp_part_num"
-        else
-            print_warning "Unsupported device type: $esp_device"
-            print_warning "Manual EFI entry creation required:"
-            print_warning "  sudo efibootmgr --create --disk <disk> --part <num> --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
-            return 0
+        if command -v lsblk &>/dev/null; then
+            local pkname=$(lsblk -no PKNAME "$esp_device")
+            esp_part_num=$(lsblk -no PARTN "$esp_device")
+            
+            # Handle NVMe/MMC parent notation if needed, but usually PKNAME gives just the name (e.g., nvme0n1)
+            # We need full path
+            if [ -n "$pkname" ]; then
+                esp_disk="/dev/$pkname"
+                print_debug "Device detection (lsblk): disk=$esp_disk part=$esp_part_num"
+            fi
+        fi
+
+        # Fallback to regex if lsblk failed or returned empty
+        if [ -z "$esp_disk" ] || [ -z "$esp_part_num" ]; then
+            if [[ "$esp_device" =~ ^/dev/nvme[0-9]+n[0-9]+p[0-9]+$ ]]; then
+                esp_disk=$(echo "$esp_device" | sed 's/p[0-9]*$//')
+                esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+                print_debug "NVMe device detected: disk=$esp_disk part=$esp_part_num"
+            elif [[ "$esp_device" =~ ^/dev/mmcblk[0-9]+p[0-9]+$ ]]; then
+                esp_disk=$(echo "$esp_device" | sed 's/p[0-9]*$//')
+                esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+                print_debug "MMC device detected: disk=$esp_disk part=$esp_part_num"
+            elif [[ "$esp_device" =~ ^/dev/[sh]d[a-z]+[0-9]+$ ]]; then
+                esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
+                esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+                print_debug "SATA/SCSI device detected: disk=$esp_disk part=$esp_part_num"
+            elif [[ "$esp_device" =~ ^/dev/vd[a-z]+[0-9]+$ ]]; then
+                esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
+                esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+                print_debug "VirtIO device detected: disk=$esp_disk part=$esp_part_num"
+            elif [[ "$esp_device" =~ ^/dev/xvd[a-z]+[0-9]+$ ]]; then
+                esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
+                esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+                print_debug "Xen device detected: disk=$esp_disk part=$esp_part_num"
+            else
+                print_warning "Unsupported device type: $esp_device"
+                print_warning "Manual EFI entry creation required:"
+                print_warning "  sudo efibootmgr --create --disk <disk> --part <num> --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+                return 0
+            fi
         fi
         
         if [ -z "$esp_disk" ] || [ -z "$esp_part_num" ]; then
@@ -512,10 +535,15 @@ EOF
         fi
         
         if ! efibootmgr -v >/dev/null 2>&1; then
-            print_warning "EFI variables not accessible"
-            print_warning "rEFInd will work as fallback bootloader, or create entry manually:"
-            print_warning "  sudo efibootmgr --create --disk $esp_disk --part $esp_part_num --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
-            return 0
+            print_warning "EFI variables not accessible, attempting to mount efivarfs..."
+            mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null
+            
+            if ! efibootmgr -v >/dev/null 2>&1; then
+                print_warning "EFI variables still not accessible"
+                print_warning "rEFInd will work as fallback bootloader, or create entry manually:"
+                print_warning "  sudo efibootmgr --create --disk $esp_disk --part $esp_part_num --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+                return 0
+            fi
         fi
         
         print_msg "Removing old rEFInd entries..."

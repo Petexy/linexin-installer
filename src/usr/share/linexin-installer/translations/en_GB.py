@@ -760,5 +760,7 @@ translations = {
             "Finalizing configuration...": "Finalizing configuration...",
             "Partitioning Failed": "Partitioning Failed",
             "Could not launch GParted: {}": "Could not launch GParted: {}",
-            "Working...": "Working..."
+            "Working...": "Working...",
+    "Select the language you want to use for the system.": "Select the language you want to use for the system.",
+    "View Installation Log": "View Installation Log",
 }

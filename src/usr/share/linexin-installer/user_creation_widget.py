@@ -13,7 +13,23 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib
 from simple_localization_manager import get_localization_manager
-_ = get_localization_manager().get_text
+
+import gettext
+import locale
+
+# --- Localization Setup ---
+APP_NAME = "linexin-installer"
+LOCALE_DIR = "/usr/share/locale"
+
+# Set initial language (will default to system language if not specified)
+try:
+    locale.setlocale(locale.LC_ALL, '')
+except locale.Error:
+    pass
+
+locale.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.textdomain(APP_NAME)
+_ = gettext.gettext
 
 class UserCreationWidget(Gtk.Box):
     """
@@ -40,7 +56,7 @@ class UserCreationWidget(Gtk.Box):
         
         # --- Title Label ---
         self.title = Gtk.Label()
-        self.title.set_markup('<span size="xx-large" weight="bold">Create Your User Account</span>')
+        self.title.set_markup('<span size="xx-large" weight="bold">' + _("Create Your User Account") + '</span>')
         self.title.set_halign(Gtk.Align.CENTER)
         self.append(self.title)
         
@@ -54,7 +70,7 @@ class UserCreationWidget(Gtk.Box):
         
         # --- Subtitle Label ---
         self.subtitle = Gtk.Label(
-            label="Set up your account to log in to the system.",
+            label=_("Set up your account to log in to the system."),
             halign=Gtk.Align.CENTER
         )
         self.subtitle.add_css_class('dim-label')
@@ -96,6 +112,8 @@ class UserCreationWidget(Gtk.Box):
         
         self.username_error = Gtk.Label(xalign=0)
         self.username_error.add_css_class('error')
+        self.username_error.set_wrap(True)
+        self.username_error.set_max_width_chars(50)
         self.username_error.set_visible(False)
         username_box.append(self.username_error)
         
@@ -144,6 +162,8 @@ class UserCreationWidget(Gtk.Box):
         
         self.password_match_error = Gtk.Label(xalign=0)
         self.password_match_error.add_css_class('error')
+        self.password_match_error.set_wrap(True)
+        self.password_match_error.set_max_width_chars(50)
         self.password_match_error.set_visible(False)
         repeat_password_box.append(self.password_match_error)
         
@@ -173,6 +193,8 @@ class UserCreationWidget(Gtk.Box):
         
         self.hostname_error = Gtk.Label(xalign=0)
         self.hostname_error.add_css_class('error')
+        self.hostname_error.set_wrap(True)
+        self.hostname_error.set_max_width_chars(50)
         self.hostname_error.set_visible(False)
         hostname_box.append(self.hostname_error)
         
@@ -233,6 +255,8 @@ class UserCreationWidget(Gtk.Box):
         
         self.root_password_match_error = Gtk.Label(xalign=0)
         self.root_password_match_error.add_css_class('error')
+        self.root_password_match_error.set_wrap(True)
+        self.root_password_match_error.set_max_width_chars(50)
         self.root_password_match_error.set_visible(False)
         repeat_root_password_box.append(self.root_password_match_error)
         
@@ -402,9 +426,6 @@ class UserCreationWidget(Gtk.Box):
         else:
             strength_text, strength_level = self.check_password_strength(user_password)
             self.password_strength.set_markup(strength_text)
-            if strength_level < 2:
-                self.validation_errors.add("weak_password")
-                all_valid = False
         
         # Check user password match - FIXED LOGIC
         if user_password and repeat_password:
@@ -443,9 +464,6 @@ class UserCreationWidget(Gtk.Box):
             else:
                 strength_text, strength_level = self.check_password_strength(root_password)
                 self.root_password_strength.set_markup(strength_text)
-                if strength_level < 2:
-                    self.validation_errors.add("weak_root_password")
-                    all_valid = False
             
             # Check root password match - FIXED LOGIC
             if root_password and repeat_root_password:

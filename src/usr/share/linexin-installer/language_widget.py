@@ -9,9 +9,24 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gdk
 from simple_localization_manager import get_localization_manager
 
+# --- Localization Setup ---
+APP_NAME = "linexin-installer"
+LOCALE_DIR = "/usr/share/locale"
+
+# Set initial language (will default to system language if not specified)
+try:
+    locale.setlocale(locale.LC_ALL, '')
+except locale.Error:
+    pass
+
+locale.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.textdomain(APP_NAME)
+_ = gettext.gettext
+
 class LanguageWidget(Gtk.Box):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        get_localization_manager().register_widget(self)
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
         self.set_margin_top(30)
@@ -24,7 +39,7 @@ class LanguageWidget(Gtk.Box):
 
         # Main title label
         title = Gtk.Label()
-        title.set_markup("<span size='xx-large' weight='bold'>Select a Language</span>")
+        title.set_markup("<span size='xx-large' weight='bold'>" + _("Select a Language") + "</span>")
         title.set_halign(Gtk.Align.CENTER)
         self.append(title)
 
@@ -37,9 +52,17 @@ class LanguageWidget(Gtk.Box):
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         clamp.set_child(content_box)
 
+        # --- Subtitle Label ---
+        self.subtitle = Gtk.Label(
+            label=_("Select the language you want to use for the system."),
+            halign=Gtk.Align.CENTER
+        )
+        self.subtitle.add_css_class('dim-label')
+        content_box.append(self.subtitle)
+
         # Search entry to filter languages
         self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Search for a language...")
+        self.search_entry.set_placeholder_text(_("Search for a language..."))
         self.search_entry.connect("search-changed", self.on_search_changed)
         content_box.append(self.search_entry)
 
