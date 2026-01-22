@@ -871,21 +871,35 @@ class InstallationWidget(Gtk.Box):
             critical=False
         ))
 
-        steps.append(InstallationStep(
-            label="Setting up Flatpak",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "update", "--appstream"],
-            description="Installing Flatpak apps and support for AppImage",
-            weight=5.0,
-            critical=False
-        ))
+        # Check if Flatpak installation is requested
+        install_flatpaks = True
+        try:
+            config_file = "/tmp/installer_config/install_flatpaks"
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    val = f.read().strip()
+                    if val == "0":
+                        install_flatpaks = False
+                        print("Skipping Flatpak installation based on user selection")
+        except Exception as e:
+            print(f"Error reading flatpak config: {e}")
 
-        steps.append(InstallationStep(
-            label="Installing Flatpak and AppImage support",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "install", "app.zen_browser.zen", "io.github.Faugus.faugus-launcher", "it.mijorus.gearlever", "com.github.tchx84.Flatseal", "com.usebottles.bottles", "app.twintaillauncher.ttl", "com.heroicgameslauncher.hgl", "--assumeyes"],
-            description="Installing Flatpak apps and support for AppImage",
-            weight=5.0,
-            critical=False
-        ))
+        if install_flatpaks:
+            steps.append(InstallationStep(
+                label="Setting up Flatpak",
+                command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "update", "--appstream"],
+                description="Installing Flatpak apps and support for AppImage",
+                weight=5.0,
+                critical=False
+            ))
+
+            steps.append(InstallationStep(
+                label="Installing Flatpak and AppImage support",
+                command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "install", "app.zen_browser.zen", "io.github.Faugus.faugus-launcher", "it.mijorus.gearlever", "com.github.tchx84.Flatseal", "com.usebottles.bottles", "app.twintaillauncher.ttl", "com.heroicgameslauncher.hgl", "--assumeyes"],
+                description="Installing Flatpak apps and support for AppImage",
+                weight=5.0,
+                critical=False
+            ))
 
         steps.append(InstallationStep(
             label="Cleaning out rootfs",

@@ -762,4 +762,7 @@ translations = {
             "Working...": "Working...",
     "Select the language you want to use for the system.": "Select the language you want to use for the system.",
     "View Installation Log": "View Installation Log",
+    "Download Linexin-suggested Flatpaks": "Download Linexin-suggested Flatpaks",
+    "Install system updates during installation": "Install system updates during installation",
+    "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB",
 }

@@ -405,4 +405,7 @@ translations = {
             "Working...": "Работа...",
     "Select the language you want to use for the system.": "Выберите язык, который вы хотите использовать для системы.",
     "View Installation Log": "Просмотреть журнал установки",
+    "Download Linexin-suggested Flatpaks": "Загрузить рекомендованные Linexin Flatpak-пакеты",
+    "Install system updates during installation": "Установить обновления системы во время установки",
+    "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>Ошибка: Раздел слишком мал!</b></span>\nМинимальный требуемый размер — 25 ГБ.\nВыбранный размер: {} ГБ",
 }

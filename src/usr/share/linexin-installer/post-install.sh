@@ -220,10 +220,25 @@ check_de_selection() {
 }
 
 # Update system packages (only if internet is available)
+# Update system packages (only if internet is available)
 if check_internet; then
-    print_msg "Internet connection available, proceeding with package updates..."
-    pacman -Sy archlinux-keyring linux --noconfirm 2>/dev/null || true
-    pacman -Syu --noconfirm 2>/dev/null || true
+    # Check if updates are enabled by user
+    UPDATES_ENABLED=1
+    if [ -f "/install_updates" ]; then
+        UPDATES_VAL=$(cat /install_updates | tr -d '[:space:]')
+        if [ "$UPDATES_VAL" == "0" ]; then
+            UPDATES_ENABLED=0
+        fi
+    fi
+
+    if [ "$UPDATES_ENABLED" -eq 1 ]; then
+        print_msg "Internet connection available, proceeding with package updates..."
+        pacman -Sy archlinux-keyring linux --noconfirm 2>/dev/null || true
+        pacman -Syu --noconfirm 2>/dev/null || true
+    else
+        print_msg "Updates disabled by user, skipping system update (pacman -Syu)..."
+    fi
+    
     check_de_selection
 else
     print_warning "No internet connection available, skipping package updates"

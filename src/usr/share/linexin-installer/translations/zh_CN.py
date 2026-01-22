@@ -405,4 +405,7 @@ translations = {
             "Working...": "正在处理...",
     "Select the language you want to use for the system.": "选择您要在系统中使用的语言。",
     "View Installation Log": "查看安装日志",
+    "Download Linexin-suggested Flatpaks": "下载 Linexin 推荐的 Flatpak 应用",
+    "Install system updates during installation": "在安装过程中安装系统更新",
+    "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>错误：分区太小！</b></span>\n所需最小大小为 25GB。\n所选大小：{}GB",
 }

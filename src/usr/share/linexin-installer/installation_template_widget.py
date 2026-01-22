@@ -260,22 +260,21 @@ class InstallationTemplateWidget(Gtk.Box):
                         size_gb = size_bytes // (1024**3)
                         size_sectors = size_bytes // 512
                         
+
                         log(f"Checking Whole Disk {disk_path}: Size={size_gb}GB")
                         
-                        if size_gb >= 25:
-                            log(f"  -> ACCEPTED Whole Disk {disk_path}")
-                            self.partitions.append({
-                                'type': 'wholedisk',
-                                'device': disk_path,
-                                'name': node['name'],
-                                'display_name': _("Whole Disk ({})").format(node['name']),
-                                'size_gb': size_gb,
-                                'size_sectors': size_sectors,
-                                'start_sector': 2048, # Default start for raw disk
-                                'parent_disk': disk_path
-                            })
-                        else:
-                            log(f"  -> REJECTED Whole Disk {disk_path} (Size < 25GB)")
+                        log(f"  -> ACCEPTED Whole Disk {disk_path}")
+                        self.partitions.append({
+                            'type': 'wholedisk',
+                            'device': disk_path,
+                            'name': node['name'],
+                            'display_name': _("Whole Disk ({})").format(node['name']),
+                            'size_gb': size_gb,
+                            'size_sectors': size_sectors,
+                            'start_sector': 2048, # Default start for raw disk
+                            'parent_disk': disk_path
+                        })
+
 
                 # If it is a partition, process it
                 if node.get('type') == 'part':
@@ -297,20 +296,18 @@ class InstallationTemplateWidget(Gtk.Box):
 
                     log(f"Checking partition {part_path}: Size={size_gb}GB ({size_bytes} bytes), Parent={parent_disk_path}")
 
-                    if size_gb >= 25: 
-                        log(f"  -> ACCEPTED {part_path}")
-                        self.partitions.append({
-                            'type': 'partition',
-                            'device': part_path,
-                            'name': node['name'],
-                            'display_name': node.get('label') or node.get('name'),
-                            'size_gb': size_gb,
-                            'size_sectors': size_sectors,
-                            'start_sector': node.get('start'),
-                            'parent_disk': parent_disk_path
-                        })
-                    else:
-                         log(f"  -> REJECTED {part_path} (Size < 25GB)")
+                    log(f"  -> ACCEPTED {part_path}")
+                    self.partitions.append({
+                        'type': 'partition',
+                        'device': part_path,
+                        'name': node['name'],
+                        'display_name': node.get('label') or node.get('name'),
+                        'size_gb': size_gb,
+                        'size_sectors': size_sectors,
+                        'start_sector': node.get('start'),
+                        'parent_disk': parent_disk_path
+                    })
+
 
                 # Recurse into children
                 if 'children' in node:
@@ -353,10 +350,12 @@ class InstallationTemplateWidget(Gtk.Box):
                                     continue
                                     
                                 size_gb = (size_sectors * 512) // (1024**3)
+                                size_mb = (size_sectors * 512) // (1024**2)
                                 
-                                log(f"Checking Free Space on {parent_disk}: Size={size_gb}GB")
+                                log(f"Checking Free Space on {parent_disk}: Size={size_gb}GB ({size_mb} MB)")
 
-                                if size_gb >= 25: # Checked against user request
+                                # Filter out tiny gaps (alignment issues), show only meaningful free space (>256MB)
+                                if size_mb >= 256:
                                     log(f"  -> ACCEPTED Free Space")
                                     self.partitions.append({
                                         'type': 'freespace',
@@ -369,7 +368,8 @@ class InstallationTemplateWidget(Gtk.Box):
                                         'parent_disk': parent_disk
                                     })
                                 else:
-                                    log("  -> REJECTED Free Space (Size < 25GB)")
+                                    log(f"  -> REJECTED Free Space (Too small: {size_mb} MB)")
+
                 except Exception as e:
                     log(f"Failed to scan free space on {parent_disk}: {e}")
 
@@ -456,6 +456,13 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_partition = button.partition_data
         self.selected_disk = self.selected_partition['parent_disk']
         self.selected_template = "wipe"
+
+        # Size Validation
+        if self.selected_partition['size_gb'] < 25:
+             msg = _("<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB").format(self.selected_partition['size_gb'])
+             self.info_label.set_markup(msg)
+             self.btn_proceed.set_sensitive(False)
+             return
 
         boot_mode = self._detect_boot_mode()
         if boot_mode == "uefi":

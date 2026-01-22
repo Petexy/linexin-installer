@@ -405,4 +405,7 @@ translations = {
             "Working...": "कार्य हो रहा है...",
     "Select the language you want to use for the system.": "सिस्टम के लिए आप जो भाषा उपयोग करना चाहते हैं, उसका चयन करें।",
     "View Installation Log": "स्थापना लॉग देखें",
+    "Download Linexin-suggested Flatpaks": "Linexin द्वारा सुझाए गए Flatpaks डाउनलोड करें",
+    "Install system updates during installation": "स्थापना के दौरान सिस्टम अपडेट इंस्टॉल करें",
+    "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>त्रुटि: विभाजन बहुत छोटा है!</b></span>\nन्यूनतम आवश्यक आकार 25GB है।\nचयनित आकार: {}GB",
 }

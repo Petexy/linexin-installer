@@ -67,7 +67,7 @@ class DEPicker(Gtk.Box):
         # Define the two options
         self.options = [
             {
-                "name": "Linexin (Current one)",
+                "name": "Linexin",
                 "description": "GNOME-based desktop interface",
                 "icon": "screen1.png",
                 "requires_internet": False
@@ -81,23 +81,48 @@ class DEPicker(Gtk.Box):
         ]
         
         # Create options container - reduced spacing
-        options_container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
-        options_container.set_halign(Gtk.Align.CENTER)
-        options_container.set_homogeneous(True)
+        self.options_container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        self.options_container.set_halign(Gtk.Align.CENTER)
+        self.options_container.set_homogeneous(True)
         
         self.option_boxes = []
         
         # Create the two option boxes
         for i, option in enumerate(self.options):
             option_box = self.create_option_box(option, i, script_dir)
-            options_container.append(option_box)
+            self.options_container.append(option_box)
             self.option_boxes.append(option_box)
         
-        self.append(options_container)
+        self.append(self.options_container)
         
         # Set first box as selected by default
         self.update_selection(0)
         
+        # Add checkboxes for optional features
+        checkbox_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        checkbox_box.set_halign(Gtk.Align.CENTER)
+        checkbox_box.set_margin_top(20)
+
+        # Flatpak checkbox
+        self.flatpak_check = Gtk.CheckButton(label="Download Linexin-suggested Flatpaks")
+        self.flatpak_check.set_active(self.has_internet)
+        self.flatpak_check.set_sensitive(self.has_internet)
+        self.flatpak_check.add_css_class("option_checkbox")
+        if not self.has_internet:
+            self.flatpak_check.set_tooltip_text("Internet connection required")
+        checkbox_box.append(self.flatpak_check)
+
+        # Updates checkbox
+        self.update_check = Gtk.CheckButton(label="Install system updates during installation")
+        self.update_check.set_active(self.has_internet)
+        self.update_check.set_sensitive(self.has_internet)
+        self.update_check.add_css_class("option_checkbox")
+        if not self.has_internet:
+            self.update_check.set_tooltip_text("Internet connection required")
+        checkbox_box.append(self.update_check)
+
+        self.append(checkbox_box)
+
         navigation_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         navigation_btns.set_halign(Gtk.Align.CENTER)
         navigation_btns.set_margin_top(15)
@@ -342,9 +367,14 @@ class DEPicker(Gtk.Box):
             print("DEBUG: No continue callback provided")
     
     def write_selection_to_file(self):
-        """Write the selected option index"""
+        """Write the selected option index and checkbox states"""
         config_dir = "/tmp/installer_config"
-        config_file = os.path.join(config_dir, "de_selection")
+        config_file_de = os.path.join(config_dir, "de_selection")
+        config_file_flatpak = os.path.join(config_dir, "install_flatpaks")
+        config_file_updates = os.path.join(config_dir, "install_updates")
+        
+        flatpak_val = "1" if self.flatpak_check.get_active() else "0"
+        updates_val = "1" if self.update_check.get_active() else "0"
         
         try:
             # Check if we have write permission to the directory
@@ -357,31 +387,37 @@ class DEPicker(Gtk.Box):
             if can_write:
                 # We have permission, write directly
                 os.makedirs(config_dir, exist_ok=True)
-                with open(config_file, 'w') as f:
+                with open(config_file_de, 'w') as f:
                     f.write(str(self.selected_option))
-                print(f"DEBUG: Wrote selection index {self.selected_option} to {config_file}")
+                with open(config_file_flatpak, 'w') as f:
+                    f.write(flatpak_val)
+                with open(config_file_updates, 'w') as f:
+                    f.write(updates_val)
+                print(f"DEBUG: Wrote selection index {self.selected_option} and flags to {config_dir}")
             else:
                 # Need elevated privileges, use pkexec
                 print("DEBUG: Elevated privileges required, using pkexec")
-                self.write_selection_with_pkexec(config_dir, config_file)
+                self.write_selection_with_pkexec(config_dir, config_file_de, config_file_flatpak, config_file_updates, flatpak_val, updates_val)
             
         except Exception as e:
             print(f"ERROR: Failed to write selection to file: {e}")
             # Try with pkexec as fallback
             try:
-                self.write_selection_with_pkexec(config_dir, config_file)
+                self.write_selection_with_pkexec(config_dir, config_file_de, config_file_flatpak, config_file_updates, flatpak_val, updates_val)
             except Exception as e2:
                 print(f"ERROR: Fallback with pkexec also failed: {e2}")
     
-    def write_selection_with_pkexec(self, config_dir, config_file):
+    def write_selection_with_pkexec(self, config_dir, config_file_de, config_file_flatpak, config_file_updates, flatpak_val, updates_val):
         """Write selection file using pkexec for elevated privileges"""
         import subprocess
         
         # Create a temporary script to execute with elevated privileges
         script_content = f"""#!/bin/bash
 mkdir -p "{config_dir}"
-echo "{self.selected_option}" > "{config_file}"
-chmod 644 "{config_file}"
+echo "{self.selected_option}" > "{config_file_de}"
+echo "{flatpak_val}" > "{config_file_flatpak}"
+echo "{updates_val}" > "{config_file_updates}"
+chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
 """
         
         # Write temp script
@@ -400,7 +436,7 @@ chmod 644 "{config_file}"
             )
             
             if result.returncode == 0:
-                print(f"DEBUG: Successfully wrote selection index {self.selected_option} to {config_file} using pkexec")
+                print(f"DEBUG: Successfully wrote selection index and flags using pkexec")
             else:
                 print(f"ERROR: pkexec failed with return code {result.returncode}")
                 print(f"STDERR: {result.stderr}")
@@ -417,10 +453,64 @@ chmod 644 "{config_file}"
         return self.selected_option, self.options[self.selected_option]
     
     def on_widget_mapped(self, widget):
-        """Start entrance animation"""
+        """Start entrance animation and refresh data"""
+        print("DEBUG: Widget mapped, refreshing UI and checking internet...")
+        
+        # Refresh UI (checks internet again)
+        self.refresh_ui()
+        
         if not self.animation_played:
             GLib.timeout_add(200, self.start_animation)
             self.animation_played = True
+            
+    def refresh_ui(self):
+        """Re-check internet and update option availability"""
+        # Re-check internet connection
+        self.has_internet = self.check_internet_connection()
+        print(f"DEBUG: Refreshing UI. Internet status: {self.has_internet}")
+        
+        # Update checkboxes
+        current_status = self.flatpak_check.get_sensitive()
+        if self.has_internet != current_status:
+            self.flatpak_check.set_sensitive(self.has_internet)
+            self.update_check.set_sensitive(self.has_internet)
+            
+            if self.has_internet:
+                self.flatpak_check.set_active(True)
+                self.update_check.set_active(True)
+                self.flatpak_check.set_tooltip_text(None)
+                self.update_check.set_tooltip_text(None)
+            else:
+                self.flatpak_check.set_active(False)
+                self.update_check.set_active(False)
+                self.flatpak_check.set_tooltip_text("Internet connection required")
+                self.update_check.set_tooltip_text("Internet connection required")
+        
+        # Clear existing options in the container
+        # Note: We can't just clear the children because we need to rebuild them
+        # with the correct status.
+        
+        # First, remove all children from options_container
+        child = self.options_container.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.options_container.remove(child)
+            child = next_child
+            
+        # Clear the old boxes list
+        self.option_boxes = []
+        
+        # Get script directory again
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Re-create option boxes with updated status
+        for i, option in enumerate(self.options):
+            option_box = self.create_option_box(option, i, script_dir)
+            self.options_container.append(option_box)
+            self.option_boxes.append(option_box)
+            
+        # Re-apply selection
+        self.update_selection(self.selected_option)
     
     def start_animation(self):
         """Fade in animation"""

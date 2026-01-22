@@ -405,4 +405,7 @@ translations = {
             "Working...": "Travail en cours...",
     "Select the language you want to use for the system.": "Sélectionnez la langue que vous souhaitez utiliser pour le système.",
     "View Installation Log": "Voir le journal d'installation",
+    "Download Linexin-suggested Flatpaks": "Télécharger les Flatpaks suggérés par Linexin",
+    "Install system updates during installation": "Installer les mises à jour système pendant l'installation",
+    "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25 Go.\nSelected size: {}GB": "<span color='red'><b>Erreur : La partition est trop petite !</b></span>\nLa taille minimale requise est de 25 Go.\nTaille sélectionnée : {} Go",
 }

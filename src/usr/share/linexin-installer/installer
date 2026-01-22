@@ -294,11 +294,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.main_stack.set_visible_child_name("keyboard")
 
     def on_back_to_user_creation_page_clicked(self, button):
-        self.main_stack.set_visible_child_name("disk_utility")
-        self.refresh_button.set_opacity(1)
-        self.refresh_button.set_sensitive(True)
-        self.disks_button.set_opacity(1)
-        self.disks_button.set_sensitive(True)
+        self.main_stack.set_visible_child_name("depicker")
+        self.refresh_button.set_opacity(0)
+        self.refresh_button.set_sensitive(False)
+        self.disks_button.set_opacity(0)
+        self.disks_button.set_sensitive(False)
 
     def on_back_to_keyboard_clicked(self, button):
         self.main_stack.set_visible_child_name("installtemplate")
@@ -318,6 +318,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def on_de_selection_back_clicked(self, button):
         self.main_stack.set_visible_child_name("installtemplate")
+        self.disks_button.set_opacity(1)
+        self.disks_button.set_sensitive(True)
 
     def on_de_selection_continue_clicked(self, command):
         self.main_stack.set_visible_child_name("usercreation")
