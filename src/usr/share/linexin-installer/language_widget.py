@@ -24,6 +24,62 @@ gettext.textdomain(APP_NAME)
 _ = gettext.gettext
 
 class LanguageWidget(Gtk.Box):
+
+    def setup_css(self):
+        """Setup CSS styling for buttons"""
+        css_provider = Gtk.CssProvider()
+        css_data = """
+        .back_button {
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .back_button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px alpha(@theme_bg_color, 0.3);
+        }
+        
+        .back_button:active {
+            transform: translateY(0px);
+        }
+
+        .continue_button {
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .continue_button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px alpha(@accent_color, 0.3);
+        }
+        
+        .continue_button:active {
+            transform: translateY(0px);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        """
+        css_provider.load_from_data(css_data.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         get_localization_manager().register_widget(self)
@@ -31,7 +87,11 @@ class LanguageWidget(Gtk.Box):
         self.set_spacing(20)
         self.set_margin_top(30)
         self.set_margin_bottom(30)
+ 
+        # Setup CSS
+        self.setup_css()
         
+        # A list to hold the language row widgets for easy filtering        
         # A list to hold the language row widgets for easy filtering
         self.language_rows = []
 
@@ -83,21 +143,37 @@ class LanguageWidget(Gtk.Box):
         self.populate_languages()
 
         # Action bar at the bottom for navigation buttons
-        action_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        action_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
         action_bar.set_halign(Gtk.Align.CENTER)
         self.append(action_bar)
 
         # The "Back" button
         self.btn_back = Gtk.Button(label="Back")
-        self.btn_back.add_css_class("buttons_all")
+        self.btn_back.add_css_class("back_button")
+        self.btn_back.set_size_request(140, 50)
+        
+        # Add hover effects to back button
+        back_hover = Gtk.EventControllerMotion()
+        back_hover.connect("enter", lambda c, x, y: self.btn_back.add_css_class("pulse-animation"))
+        back_hover.connect("leave", lambda c: self.btn_back.remove_css_class("pulse-animation"))
+        self.btn_back.add_controller(back_hover)
+        
         action_bar.append(self.btn_back)
 
 
         # The "Proceed" button
         self.btn_proceed = Gtk.Button(label="Continue")
         self.btn_proceed.add_css_class("suggested-action")
-        self.btn_proceed.add_css_class("buttons_all")
-        self.btn_proceed.set_sensitive(False) 
+        self.btn_proceed.add_css_class("continue_button")
+        self.btn_proceed.set_size_request(140, 50)
+        self.btn_proceed.set_sensitive(False)
+        
+        # Add hover effects to continue button
+        continue_hover = Gtk.EventControllerMotion()
+        continue_hover.connect("enter", lambda c, x, y: self.btn_proceed.add_css_class("pulse-animation"))
+        continue_hover.connect("leave", lambda c: self.btn_proceed.remove_css_class("pulse-animation"))
+        self.btn_proceed.add_controller(continue_hover)
+        
         action_bar.append(self.btn_proceed)
 
         # Connect signal to enable the proceed button upon selection

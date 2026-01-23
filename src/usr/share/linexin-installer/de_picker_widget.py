@@ -49,6 +49,8 @@ class DEPicker(Gtk.Box):
         # Horizontal margins
         self.set_margin_start(40)
         self.set_margin_end(40)
+        self.set_margin_top(30)
+        self.set_margin_bottom(30)
         # --- MODIFIED SECTION END ---
         
         # Setup CSS first
@@ -123,7 +125,7 @@ class DEPicker(Gtk.Box):
 
         self.append(checkbox_box)
 
-        navigation_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        navigation_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
         navigation_btns.set_halign(Gtk.Align.CENTER)
         navigation_btns.set_margin_top(15)
 
@@ -132,20 +134,16 @@ class DEPicker(Gtk.Box):
         self.continue_btn.set_label("Continue")
         self.continue_btn.add_css_class("suggested-action")
         self.continue_btn.add_css_class("continue_button")
-        self.continue_btn.set_size_request(160, 40)
+        self.continue_btn.set_size_request(140, 50)
         self.continue_btn.set_halign(Gtk.Align.CENTER)
-        self.continue_btn.set_margin_end(10)
-        self.continue_btn.set_margin_top(10)
         self.continue_btn.connect("clicked", self.on_continue_clicked)
         
 
         self.back_btn = Gtk.Button()
         self.back_btn.set_label("Back")
         self.back_btn.add_css_class("back_button")
-        self.back_btn.set_size_request(160, 40)
+        self.back_btn.set_size_request(140, 50)
         self.back_btn.set_halign(Gtk.Align.CENTER)
-        self.back_btn.set_margin_top(10)
-        self.back_btn.set_margin_end(10)
         self.back_btn.connect("clicked", self.on_continue_clicked)
         
         # Add hover effects to continue button

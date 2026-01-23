@@ -10,7 +10,7 @@ import threading
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, GObject, Gio
+from gi.repository import Gtk, Adw, GLib, GObject, Gio, Gdk
 from simple_localization_manager import get_localization_manager
 _ = get_localization_manager().get_text
 
@@ -41,6 +41,9 @@ class InstallationTemplateWidget(Gtk.Box):
 
         # Connect map signal to refresh data when widget becomes visible
         self.connect("map", self._on_map)
+        
+        # Setup CSS
+        self.setup_css()
 
         # --- UI Construction ---
         self.view_stack = Gtk.Stack()
@@ -49,8 +52,8 @@ class InstallationTemplateWidget(Gtk.Box):
 
         # 1. Main Content View
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=40)
-        self.content_box.set_margin_top(60)
-        self.content_box.set_margin_bottom(60)
+        self.content_box.set_margin_top(30)
+        self.content_box.set_margin_bottom(30)
         self.content_box.set_margin_start(40)
         self.content_box.set_margin_end(40)
         self.content_box.set_vexpand(True)
@@ -95,7 +98,7 @@ class InstallationTemplateWidget(Gtk.Box):
         self.content_box.append(self.info_label)
 
         # Buttons
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
         button_box.set_halign(Gtk.Align.CENTER)
         button_box.set_margin_bottom(30)
         self.append(button_box) # Note: We keep buttons outside the stack so they persist, or move inside if you want them hidden
@@ -108,20 +111,38 @@ class InstallationTemplateWidget(Gtk.Box):
         self.content_box.append(button_box)
 
         self.btn_back = Gtk.Button(label=_("Back"))
-        self.btn_back.add_css_class('buttons_all')
-        self.btn_back.set_size_request(140, 40)
+        self.btn_back.add_css_class('back_button')
+        self.btn_back.set_size_request(140, 50)
+        
+        # Add hover effects to back button
+        back_hover = Gtk.EventControllerMotion()
+        back_hover.connect("enter", lambda c, x, y: self.btn_back.add_css_class("pulse-animation"))
+        back_hover.connect("leave", lambda c: self.btn_back.remove_css_class("pulse-animation"))
+        self.btn_back.add_controller(back_hover)
+        
         button_box.append(self.btn_back)
 
         self.btn_proceed = Gtk.Button(label=_("Continue"))
         self.btn_proceed.add_css_class('suggested-action')
-        self.btn_proceed.add_css_class('buttons_all')
-        self.btn_proceed.set_size_request(140, 40)
+        self.btn_proceed.add_css_class('continue_button')
+        self.btn_proceed.set_size_request(140, 50)
+        
+        # Add hover effects to continue button
+        continue_hover = Gtk.EventControllerMotion()
+        continue_hover.connect("enter", lambda c, x, y: self.btn_proceed.add_css_class("pulse-animation"))
+        continue_hover.connect("leave", lambda c: self.btn_proceed.remove_css_class("pulse-animation"))
+        self.btn_proceed.add_controller(continue_hover)
+        
         self.btn_proceed.connect("clicked", self.on_continue_clicked)
         self.btn_proceed.set_sensitive(False)
         button_box.append(self.btn_proceed)
 
         # 2. Waiting View
         self._create_waiting_ui()
+
+        # Initial Detection
+        self._detect_partitions()
+        self._create_partition_cards()
 
         get_localization_manager().update_widget_tree(self)
 
@@ -197,14 +218,70 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_template = None
         self.partitions = []
         self.selected_partition = None
+        self.selected_partition = None
         self.selected_disk = None
         self.selected_disk_widget = None
-        self.btn_proceed.set_sensitive(False)
+        
         self.info_label.set_markup("")
+        self.btn_proceed.set_sensitive(False)
 
-        # Redetect
         self._detect_partitions()
         self._create_partition_cards()
+
+    def setup_css(self):
+        """Setup CSS styling for buttons"""
+        css_provider = Gtk.CssProvider()
+        css_data = """
+        .back_button {
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .back_button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px alpha(@theme_bg_color, 0.3);
+        }
+        
+        .back_button:active {
+            transform: translateY(0px);
+        }
+
+        .continue_button {
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .continue_button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px alpha(@accent_color, 0.3);
+        }
+        
+        .continue_button:active {
+            transform: translateY(0px);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        """
+        css_provider.load_from_data(css_data.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
     def _detect_partitions(self):
         """Detect partitions, Free Space, and Whole Disks > 25GB"""

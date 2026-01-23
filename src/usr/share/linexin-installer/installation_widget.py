@@ -13,7 +13,7 @@ from typing import List, Callable, Optional
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, Pango, GObject
+from gi.repository import Gtk, Adw, GLib, Pango, GObject, Gdk
 from simple_localization_manager import get_localization_manager
 _ = get_localization_manager().get_text
 
@@ -71,6 +71,64 @@ class InstallationWidget(Gtk.Box):
         
         # Build UI
         self._build_ui()
+        
+        # Setup CSS
+        self.setup_css()
+
+    def setup_css(self):
+        """Setup CSS styling for buttons"""
+        css_provider = Gtk.CssProvider()
+        css_data = """
+        .back_button {
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .back_button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px alpha(@theme_bg_color, 0.3);
+        }
+        
+        .back_button:active {
+            transform: translateY(0px);
+        }
+
+        .continue_button {
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .continue_button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px alpha(@accent_color, 0.3);
+        }
+        
+        .continue_button:active {
+            transform: translateY(0px);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        """
+        css_provider.load_from_data(css_data.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
     
     def _build_ui(self):
@@ -159,8 +217,16 @@ class InstallationWidget(Gtk.Box):
         
         self.toggle_details_btn = Gtk.Button(label=_("View Installation Log"))
         self.toggle_details_btn.set_halign(Gtk.Align.CENTER)
-        self.toggle_details_btn.add_css_class('pill')
+        self.toggle_details_btn.add_css_class('back_button')
+        self.toggle_details_btn.set_size_request(180, 50)
         self.toggle_details_btn.connect("clicked", self._on_toggle_details)
+        
+        # Add hover effects
+        details_hover = Gtk.EventControllerMotion()
+        details_hover.connect("enter", lambda c, x, y: self.toggle_details_btn.add_css_class("pulse-animation"))
+        details_hover.connect("leave", lambda c: self.toggle_details_btn.remove_css_class("pulse-animation"))
+        self.toggle_details_btn.add_controller(details_hover)
+        
         details_box.append(self.toggle_details_btn)
         
         self.details_revealer = Gtk.Revealer()
@@ -198,22 +264,42 @@ class InstallationWidget(Gtk.Box):
         self.scrolled_window.set_child(self.terminal_view)
         
         # --- Action Buttons ---
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
         button_box.set_halign(Gtk.Align.CENTER)
         button_box.set_margin_top(12)
         main_box.append(button_box)
         
         self.btn_cancel = Gtk.Button(label="Cancel Installation")
-        self.btn_cancel.add_css_class('destructive-action')
-        self.btn_cancel.add_css_class('pill')
+        self.btn_cancel.add_css_class('destructive-action') # Keeping destructive for color, but maybe should use back_button shape? 
+        # Actually user wants same styling. Let's add back_button class to get shape/font, but keep destructive-action for color if they compose well.
+        # Adwaita destructive-action usually overrides stuff. 
+        # I will use back_button class primarily but maybe keep destructive-action for red color.
+        # Or better -> Just use the same pill/action style but with our classes.
+        self.btn_cancel.add_css_class('back_button') 
+        self.btn_cancel.set_size_request(180, 50) # Slightly wider for text
         self.btn_cancel.connect("clicked", self._on_cancel_clicked)
+        
+        # Add hover effects to cancel button
+        cancel_hover = Gtk.EventControllerMotion()
+        cancel_hover.connect("enter", lambda c, x, y: self.btn_cancel.add_css_class("pulse-animation"))
+        cancel_hover.connect("leave", lambda c: self.btn_cancel.remove_css_class("pulse-animation"))
+        self.btn_cancel.add_controller(cancel_hover)
+        
         button_box.append(self.btn_cancel)
         
         self.btn_continue = Gtk.Button(label="Restart Computer")
         self.btn_continue.add_css_class('suggested-action')
-        self.btn_continue.add_css_class('pill')
+        self.btn_continue.add_css_class('continue_button')
+        self.btn_continue.set_size_request(180, 50) # Slightly wider for text
         self.btn_continue.set_visible(False)
         self.btn_continue.connect("clicked", self._on_continue_clicked)
+
+        # Add hover effects to continue button
+        continue_hover = Gtk.EventControllerMotion()
+        continue_hover.connect("enter", lambda c, x, y: self.btn_continue.add_css_class("pulse-animation"))
+        continue_hover.connect("leave", lambda c: self.btn_continue.remove_css_class("pulse-animation"))
+        self.btn_continue.add_controller(continue_hover)
+
         button_box.append(self.btn_continue)
         
         # Start timer update
@@ -983,6 +1069,8 @@ class InstallationWidget(Gtk.Box):
                     output = process.stdout.readline()
                     if output:
                         self.output_queue.put((output.rstrip(), None))
+                        
+
                     
                     # Check if process has finished
                     if process.poll() is not None:
@@ -1015,7 +1103,7 @@ class InstallationWidget(Gtk.Box):
                     GLib.idle_add(self._on_installation_error, error_msg)
                     return
             
-            # Update progress
+            # Update progress (Finalize step)
             completed_weight += step.weight
             progress = completed_weight / total_weight
             GLib.idle_add(self._update_progress, progress)
@@ -1036,10 +1124,43 @@ class InstallationWidget(Gtk.Box):
         return False
     
     def _update_progress(self, progress: float):
-        """Update the progress bar."""
-        self.progress_bar.set_fraction(progress)
-        self.progress_bar.set_text(f"{int(progress * 100)}%")
+        """Update the target progress for the progress bar."""
+        self.target_progress = progress
+        # Start animation if not running
+        if not hasattr(self, '_progress_timer_id') or self._progress_timer_id is None:
+             self._progress_timer_id = GLib.timeout_add(16, self._animate_progress) # ~60 FPS
         return False
+    
+    def _animate_progress(self):
+        """Smoothly interpolate progress bar to target value."""
+        current_progress = self.progress_bar.get_fraction()
+        
+        # Calculate diff
+        diff = self.target_progress - current_progress
+        
+        # If very close, just snap and stop
+        if abs(diff) < 0.001:
+            self.progress_bar.set_fraction(self.target_progress)
+            self.progress_bar.set_text(f"{int(self.target_progress * 100)}%")
+            self._progress_timer_id = None
+            return False # Stop timer
+            
+        # Interpolate: Move 10% of the remaining distance per frame, or at least 0.001
+        step = diff * 0.1
+        if abs(step) < 0.001:
+            step = 0.001 if diff > 0 else -0.001
+            
+        new_progress = current_progress + step
+        
+        # Clamp to target if we overshot
+        if (diff > 0 and new_progress > self.target_progress) or \
+           (diff < 0 and new_progress < self.target_progress):
+           new_progress = self.target_progress
+           
+        self.progress_bar.set_fraction(new_progress)
+        self.progress_bar.set_text(f"{int(new_progress * 100)}%")
+        
+        return True # Continue timer
     
     
     def _process_terminal_queue(self):
