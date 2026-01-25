@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-installer
-pkgver=1.4.0.r
+pkgver=1.4.1.r
 pkgrel=1
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='Linexin Operating System Installer'

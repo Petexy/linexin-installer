@@ -300,16 +300,31 @@ install_grub() {
     print_msg "Installing GRUB for $boot_mode mode..."
     
     if [ "$boot_mode" = "uefi" ]; then
-        pacman -S --noconfirm grub efibootmgr os-prober ntfs-3g || return 1
+        if ! command -v grub-install &>/dev/null || ! command -v efibootmgr &>/dev/null; then
+            print_msg "Installing missing bootloader packages..."
+            pacman -S --noconfirm --needed grub efibootmgr os-prober ntfs-3g || return 1
+        else
+            print_msg "Bootloader packages already installed."
+        fi
         
         if ! grub-install --target=x86_64-efi --efi-directory="$esp_path" --bootloader-id=Linexin; then
             print_error "GRUB UEFI installation failed"
             return 1
         fi
     else
-        pacman -S --noconfirm grub os-prober ntfs-3g || return 1
+        if ! command -v grub-install &>/dev/null; then
+            print_msg "Installing missing bootloader packages..."
+            pacman -S --noconfirm --needed grub os-prober ntfs-3g || return 1
+        else
+            print_msg "Bootloader packages already installed."
+        fi
         
         local root_device=$(findmnt -no SOURCE /)
+        # Resolved symlinks (e.g. /dev/disk/by-uuid/...) to real device (e.g. /dev/sda1)
+        if [ -L "$root_device" ] || [[ "$root_device" == /dev/disk/* ]]; then
+             root_device=$(readlink -f "$root_device")
+        fi
+        
         print_debug "Root device: $root_device"
         
         local root_disk=""
@@ -338,8 +353,12 @@ install_grub() {
         
         print_msg "Installing GRUB to $root_disk"
         if ! grub-install --target=i386-pc "$root_disk"; then
-            print_error "GRUB Legacy installation failed"
-            return 1
+            print_warning "Standard GRUB installation failed, attempting forced installation..."
+            if ! grub-install --target=i386-pc --force "$root_disk"; then
+                print_error "GRUB Legacy installation failed (even with --force)"
+                return 1
+            fi
+            print_msg "GRUB installed successfully using --force"
         fi
     fi
     

@@ -1013,7 +1013,7 @@ class InstallationWidget(Gtk.Box):
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/bootloader.sh"],
             description="Checking for other systems installed and installing proper bootloader",
             weight=3.0,
-            critical=False
+            critical=True
         ))
         
         steps.append(InstallationStep(
