@@ -372,6 +372,7 @@ translations = {
             "Install the system": "System installieren",
             "Removing unused GPU drivers": "Entfernen ungenutzter GPU-Treiber",
             "Removing unused microcode": "Entfernen ungenutzten Mikrocodes",
+            "Removing ucode for non-used x86_64 processor": "Entfernen von Microcode für nicht verwendeten x86_64-Prozessor",
             "Select a partition to install": "Wählen Sie eine Partition für die Installation",
             "The selected partition will be replaced with Linexin.": "Die gewählte Partition wird durch Linexin ersetzt.",
             "Manage your disks": "Festplatten verwalten",
@@ -409,4 +410,17 @@ translations = {
     "Download Linexin-suggested Flatpaks": "Von Linexin vorgeschlagene Flatpaks herunterladen",
     "Install system updates during installation": "Systemaktualisierungen während der Installation installieren",
     "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>Fehler: Partition ist zu klein!</b></span>\nMindestgröße ist 25GB.\nAusgewählte Größe: {}GB",
+
+    # Home Partition Assignment
+    "Details: {}": "Details: {}",
+    "Unselect": "Abwählen",
+    "Assign /home": "/home zuweisen",
+    "Assign /home Partition": "/home-Partition zuweisen",
+    "Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system.": "Wählen Sie eine Partition für /home aus.\nDies ermöglicht es Ihnen, Ihre persönlichen Dateien vom System getrennt zu halten.",
+    "Select": "Auswählen",
+    "No other suitable partitions found for /home assignment.": "Keine anderen geeigneten Partitionen für die /home-Zuweisung gefunden.",
+    "Format partition (Erase all data)": "Partition formatieren (Alle Daten löschen)",
+    "<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)": "<span color='red'><b>Formatieren & Verwenden</b></span> (Alle Daten auf {} werden gelöscht)",
+    "<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)": "<span color='green'><b>Einbinden & Daten behalten</b></span> (Dateien auf {} bleiben erhalten)",
+    "Formatting Home partition...": "Formatiere Home-Partition...",
 }

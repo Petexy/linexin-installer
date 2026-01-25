@@ -762,6 +762,73 @@ class InstallationWidget(Gtk.Box):
         fi
         """
     
+    
+    def _get_mount_extra_partitions_command(self):
+        """Generate a bash command to parse fstab and mount other partitions (home, var, etc)."""
+        return r"""
+        FSTAB_FILE="/etc/fstab"
+        if [ ! -f "$FSTAB_FILE" ]; then
+            echo "No fstab found, skipping extra partitions"
+            exit 0
+        fi
+        
+        # Parse fstab for other partitions
+        # Exclude /, /boot, swap, and comments
+        grep -v "^#" "$FSTAB_FILE" | awk '$2 != "/" && $2 != "/boot" && $3 != "swap" && $2 != "" {print $0}' | while read -r line; do
+            DEVICE=$(echo "$line" | awk '{print $1}')
+            MOUNTPOINT=$(echo "$line" | awk '{print $2}')
+            FS_TYPE=$(echo "$line" | awk '{print $3}')
+            MOUNT_OPTIONS=$(echo "$line" | awk '{print $4}')
+            
+            echo "Found extra partition for $MOUNTPOINT on $DEVICE"
+            
+            # Handle UUID and LABEL
+            RESOLVED_DEVICE="$DEVICE"
+            if [[ "$DEVICE" == UUID=* ]]; then
+                UUID="${DEVICE#UUID=}"
+                RESOLVED_DEVICE="/dev/disk/by-uuid/$UUID"
+            elif [[ "$DEVICE" == LABEL=* ]]; then
+                LABEL="${DEVICE#LABEL=}"
+                RESOLVED_DEVICE="/dev/disk/by-label/$LABEL"
+            elif [[ "$DEVICE" == PARTUUID=* ]]; then
+                PARTUUID="${DEVICE#PARTUUID=}"
+                RESOLVED_DEVICE="/dev/disk/by-partuuid/$PARTUUID"
+            fi
+            
+            # Wait for device
+            if [ ! -e "$RESOLVED_DEVICE" ]; then
+                echo "Waiting for device $RESOLVED_DEVICE..."
+                sleep 2
+                if [ ! -e "$RESOLVED_DEVICE" ]; then
+                     # Try to resolve again via blkid if UUID
+                     if [[ "$DEVICE" == UUID=* ]]; then
+                         UUID="${DEVICE#UUID=}"
+                         RESOLVED_DEVICE=$(blkid -U "$UUID" 2>/dev/null)
+                     fi
+                fi
+            fi
+            
+            if [ -z "$RESOLVED_DEVICE" ] || [ ! -e "$RESOLVED_DEVICE" ]; then
+                echo "Warning: Device $DEVICE for $MOUNTPOINT not found, skipping"
+                continue
+            fi
+            
+            TARGET_DIR="/tmp/linexin_installer/root$MOUNTPOINT"
+            mkdir -p "$TARGET_DIR"
+            
+            echo "Mounting $RESOLVED_DEVICE to $TARGET_DIR"
+            
+            # Mount
+            mount -t "$FS_TYPE" -o "$MOUNT_OPTIONS" "$RESOLVED_DEVICE" "$TARGET_DIR"
+            
+            if [ $? -eq 0 ]; then
+                echo "Successfully mounted $MOUNTPOINT"
+            else
+                echo "Failed to mount $MOUNTPOINT"
+            fi
+        done
+        """
+
     def _get_copy_config_command(self):
         """Generate a bash command to copy installer configuration files."""
         return """
@@ -830,6 +897,14 @@ class InstallationWidget(Gtk.Box):
             label="Mounting boot partition",
             command=["sudo", "bash", "-c", self._get_mount_boot_command()],
             description="Mounting the boot partition based on /etc/fstab",
+            weight=1.0,
+            critical=False
+        ))
+
+        steps.append(InstallationStep(
+            label="Mounting extra partitions",
+            command=["sudo", "bash", "-c", self._get_mount_extra_partitions_command()],
+            description="Mounting other partitions (like /home) based on /etc/fstab",
             weight=1.0,
             critical=False
         ))
@@ -1029,6 +1104,7 @@ class InstallationWidget(Gtk.Box):
         self.installation_thread = threading.Thread(target=self._run_installation)
         self.installation_thread.daemon = True
         self.installation_thread.start()
+
     
     def _run_installation(self):
         """Run the installation process in a separate thread."""

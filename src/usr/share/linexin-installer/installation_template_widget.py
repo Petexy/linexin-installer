@@ -38,6 +38,7 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_partition = None
         self.selected_disk = None
         self.selected_disk_widget = None
+        self.selected_home_partition = None
 
         # Connect map signal to refresh data when widget becomes visible
         self.connect("map", self._on_map)
@@ -88,14 +89,36 @@ class InstallationTemplateWidget(Gtk.Box):
         self.partition_cards_box.set_halign(Gtk.Align.CENTER)
         center_box.append(self.partition_cards_box)
 
+        # Info Area (Label + Assign Home Button)
+        self.info_area_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        self.info_area_box.set_halign(Gtk.Align.CENTER)
+        self.info_area_box.set_margin_top(30)
+        self.content_box.append(self.info_area_box)
+
         # Info Label
         self.info_label = Gtk.Label()
         self.info_label.set_wrap(True)
         self.info_label.set_max_width_chars(70)
         self.info_label.set_halign(Gtk.Align.CENTER)
         self.info_label.add_css_class('dim-label')
-        self.info_label.set_margin_top(30)
-        self.content_box.append(self.info_label)
+        # Margin is handled by parent box
+        self.info_area_box.append(self.info_label)
+
+        # --- Assign Home Button ---
+        self.btn_assign_home = Gtk.Button(label=_("Assign /home"))
+        self.btn_assign_home.add_css_class('back_button') 
+        self.btn_assign_home.set_size_request(140, 50)
+        self.btn_assign_home.set_visible(False) 
+        self.btn_assign_home.set_valign(Gtk.Align.CENTER)
+        self.btn_assign_home.connect("clicked", self.on_assign_home_clicked)
+        
+        # Add hover effects
+        home_hover = Gtk.EventControllerMotion()
+        home_hover.connect("enter", lambda c, x, y: self.btn_assign_home.add_css_class("pulse-animation"))
+        home_hover.connect("leave", lambda c: self.btn_assign_home.remove_css_class("pulse-animation"))
+        self.btn_assign_home.add_controller(home_hover)
+
+        self.info_area_box.append(self.btn_assign_home)
 
         # Buttons
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
@@ -136,6 +159,9 @@ class InstallationTemplateWidget(Gtk.Box):
         self.btn_proceed.connect("clicked", self.on_continue_clicked)
         self.btn_proceed.set_sensitive(False)
         button_box.append(self.btn_proceed)
+
+
+
 
         # 2. Waiting View
         self._create_waiting_ui()
@@ -218,9 +244,12 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_template = None
         self.partitions = []
         self.selected_partition = None
-        self.selected_partition = None
         self.selected_disk = None
         self.selected_disk_widget = None
+        self.selected_home_partition = None
+        
+        if hasattr(self, 'btn_assign_home'):
+            self.btn_assign_home.set_visible(False)
         
         self.info_label.set_markup("")
         self.btn_proceed.set_sensitive(False)
@@ -533,6 +562,12 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_partition = button.partition_data
         self.selected_disk = self.selected_partition['parent_disk']
         self.selected_template = "wipe"
+        # Clear home assignment when switching partitions
+        self.selected_home_partition = None
+
+        # Enable Assign Home button
+        if hasattr(self, 'btn_assign_home'):
+            self.btn_assign_home.set_visible(True)
 
         # Size Validation
         if self.selected_partition['size_gb'] < 25:
@@ -541,13 +576,7 @@ class InstallationTemplateWidget(Gtk.Box):
              self.btn_proceed.set_sensitive(False)
              return
 
-        boot_mode = self._detect_boot_mode()
-        if boot_mode == "uefi":
-            msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
-        else:
-            msg = _("Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)").format(self.selected_partition['device'])
-
-        self.info_label.set_markup(msg)
+        self._update_home_info_label()
         self.btn_proceed.set_sensitive(True)
 
     def on_continue_clicked(self, btn):
@@ -753,6 +782,34 @@ class InstallationTemplateWidget(Gtk.Box):
                 disk_utility_widget.partition_config[new_root_device] = {
                     'mountpoint': '/', 'bootable': True, 'filesystem': 'ext4'
                 }
+            
+            # --- STEP F: HOME PARTITION ---
+            if self.selected_home_partition:
+                home_device = self.selected_home_partition['device']
+                should_format = self.selected_home_partition['format']
+                
+                print(f"Configuring Home Partition: {home_device} (Format: {should_format})")
+                
+                if should_format:
+                     GLib.idle_add(self.progress_dialog.set_body, _("Formatting Home partition..."))
+                     subprocess.run(['sudo', 'mkfs.ext4', '-F', home_device], check=True)
+                     filesystem = 'ext4'
+                else:
+                    # Detect filesystem if not formatting, or assume auto/ext4
+                    # We can leave it for fstab gen to detect or default to auto
+                    filesystem = 'auto'
+                    # Try to detect actual fs for better fstab
+                    try:
+                        fs_check = subprocess.run(['sudo', 'blkid', '-o', 'value', '-s', 'TYPE', home_device], capture_output=True, text=True)
+                        if fs_check.returncode == 0 and fs_check.stdout.strip():
+                            filesystem = fs_check.stdout.strip()
+                    except: pass
+
+                disk_utility_widget.partition_config[home_device] = {
+                    'mountpoint': '/home',
+                    'bootable': False,
+                    'filesystem': filesystem
+                }
 
             disk_utility_widget.selected_disk = parent_disk
 
@@ -802,3 +859,175 @@ class InstallationTemplateWidget(Gtk.Box):
     def wipe_radio(self): return None
     @property
     def manual_radio(self): return None
+    def on_assign_home_clicked(self, button):
+        """Show dialog to assign a partition for /home"""
+        if not self.selected_partition:
+            return
+
+        dialog = Adw.MessageDialog(
+            heading=_("Assign /home Partition"),
+            body=_("Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system."),
+            transient_for=self.get_root()
+        )
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("clear", _("Unselect"))
+        dialog.add_response("select", _("Select"))
+        dialog.set_response_appearance("select", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        # Content area
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_top(12)
+        
+        # Partition List
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_height(200)
+        scrolled.set_max_content_height(350)
+        content_box.append(scrolled)
+        
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        list_box.add_css_class("boxed-list")
+        scrolled.set_child(list_box)
+
+        # Populate List
+        valid_partitions = []
+        for p in self.partitions:
+            # Skip if it's the selected root target
+            if p['device'] == self.selected_partition['device']:
+                continue
+            
+            # Skip if it's on the same disk IF the user selected "Whole Disk" wipe
+            # Because Whole Disk wipe will destroy this partition too.
+            if self.selected_partition['type'] == 'wholedisk':
+                 if p['parent_disk'] == self.selected_partition['device']:
+                     continue
+            
+            # Skip Wholedisk entries for /home assignment (usually we want partitions)
+            if p['type'] == 'wholedisk':
+                continue
+            
+            # Skip Free Space entries (cannot assign free space directly)
+            if p['type'] == 'freespace':
+                continue
+                
+            # Skip tiny partitions
+            if p.get('size_gb', 0) < 1:
+                continue
+
+            valid_partitions.append(p)
+
+        if not valid_partitions:
+            dialog.set_body(_("No other suitable partitions found for /home assignment."))
+            dialog.set_response_enabled("select", False)
+        
+        def update_checkmarks(box, row):
+            """Helper to manage checkmark icons on rows"""
+            # Iterate all rows and remove suffix if present
+            i = 0
+            while True:
+                r = box.get_row_at_index(i)
+                if not r: break
+                
+                # We expect Adw.ActionRow
+                # Remove all suffixes (we assume only checkmark is added or we clear all)
+                # Currently Adw.ActionRow doesn't have a simple "remove_suffix" that targets specific widget
+                # But we can assume we only add one.
+                # Actually, easier to keeping track or just rebuilding? No.
+                # Let's try to remove the checkmark if we find it.
+                # Or simplistic: clear suffixes? ActionRow doesn't expose list easily.
+                
+                # BETTER APPROACH:
+                # Store the icon widget ref on the row object
+                if hasattr(r, 'checkmark_icon') and r.checkmark_icon:
+                    r.remove(r.checkmark_icon)
+                    r.checkmark_icon = None
+                
+                if r == row:
+                    icon = Gtk.Image.new_from_icon_name("object-select-symbolic")
+                    r.add_suffix(icon)
+                    r.checkmark_icon = icon
+                
+                i += 1
+
+        for p in valid_partitions:
+            row = Adw.ActionRow(title=p['device'], subtitle=f"{p['display_name']} ({p['size_gb']} GB)")
+            row.partition_data = p
+            list_box.append(row)
+            
+            # Select if it matches current selection
+            if self.selected_home_partition and self.selected_home_partition['device'] == p['device']:
+                 list_box.select_row(row)
+                 # Add initial checkmark
+                 icon = Gtk.Image.new_from_icon_name("object-select-symbolic")
+                 row.add_suffix(icon)
+                 row.checkmark_icon = icon
+        
+        # Connect signal to update checkmarks on selection change
+        list_box.connect("row-selected", update_checkmarks)
+
+        # Format Checkbox
+        format_check = Gtk.CheckButton(label=_("Format partition (Erase all data)"))
+        format_check.set_margin_top(10)
+        if self.selected_home_partition:
+            format_check.set_active(self.selected_home_partition.get('format', False))
+        content_box.append(format_check)
+
+        dialog.set_extra_child(content_box)
+        
+        def on_response(d, response):
+            if response == "select":
+                selected_row = list_box.get_selected_row()
+                if selected_row:
+                    part_data = selected_row.partition_data
+                    should_format = format_check.get_active()
+                    
+                    self.selected_home_partition = {
+                        'device': part_data['device'],
+                        'format': should_format,
+                        'size_gb': part_data['size_gb']
+                    }
+                    self._update_home_info_label()
+            elif response == "clear":
+                self.selected_home_partition = None
+                self._update_home_info_label()
+            elif response == "cancel":
+                pass # Do nothing
+                
+            d.close()
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _update_home_info_label(self):
+        """Append home partition info to the main label"""
+        # Re-trigger the main selection logic to reset the text base
+        if not self.selected_partition: 
+            return
+
+        # Start with the base message from card clicked logic
+        boot_mode = self._detect_boot_mode()
+        if self.selected_partition['type'] == 'wholedisk':
+             if boot_mode == "uefi":
+                 base_msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
+             else:
+                 base_msg = _("Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)").format(self.selected_partition['device'])
+        else:
+            # Partition
+            if boot_mode == "uefi":
+                 base_msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
+            else:
+                 base_msg = _("Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)").format(self.selected_partition['device'])
+
+        # Append Home info
+        if self.selected_home_partition:
+            home_dev = self.selected_home_partition['device']
+            if self.selected_home_partition['format']:
+                action = _("<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)").format(home_dev)
+            else:
+                action = _("<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)").format(home_dev)
+            
+            home_msg = f"\n\n<b>/home</b>: {home_dev}\n" + _("Details: {}").format(action)
+            base_msg += home_msg
+            
+        self.info_label.set_markup(base_msg)

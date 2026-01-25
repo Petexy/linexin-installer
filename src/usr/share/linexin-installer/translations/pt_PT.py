@@ -371,6 +371,7 @@ translations = {
             "Install the system": "Instalar o sistema",
             "Removing unused GPU drivers": "Removendo drivers GPU não utilizados",
             "Removing unused microcode": "Removendo microcódigo não utilizado",
+            "Removing ucode for non-used x86_64 processor": "A remover microcódigo para processador x86_64 não utilizado",
             "Select a partition to install": "Selecione uma partição para instalar",
             "The selected partition will be replaced with Linexin.": "A partição selecionada será substituída pelo Linexin.",
             "Manage your disks": "Gerir os seus discos",
@@ -408,4 +409,17 @@ translations = {
     "Download Linexin-suggested Flatpaks": "Transferir Flatpaks sugeridos pelo Linexin",
     "Install system updates during installation": "Instalar atualizações do sistema durante a instalação",
     "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>Erro: A partição é muito pequena!</b></span>\nO tamanho mínimo necessário é 25 GB.\nTamanho selecionado: {} GB",
+
+    # Home Partition Assignment
+    "Details: {}": "Detalhes: {}",
+    "Unselect": "Desmarcar",
+    "Assign /home": "Atribuir /home",
+    "Assign /home Partition": "Atribuir partição /home",
+    "Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system.": "Selecione uma partição para utilizar como /home.\nIsso permite manter os ficheiros pessoais separados do sistema.",
+    "Select": "Selecionar",
+    "No other suitable partitions found for /home assignment.": "Nenhuma outra partição adequada encontrada para atribuição do /home.",
+    "Format partition (Erase all data)": "Formatar partição (Apagar todos os dados)",
+    "<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)": "<span color='red'><b>Formatar e Utilizar</b></span> (Todos os dados em {} serão apagados)",
+    "<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)": "<span color='green'><b>Montar e Manter Dados</b></span> (Os ficheiros em {} serão preservados)",
+    "Formatting Home partition...": "A formatar partição Home...",
 }

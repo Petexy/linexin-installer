@@ -371,6 +371,7 @@ translations = {
             "Install the system": "Установить систему",
             "Removing unused GPU drivers": "Удаление неиспользуемых драйверов GPU",
             "Removing unused microcode": "Удаление неиспользуемого микрокода",
+            "Removing ucode for non-used x86_64 processor": "Удаление микрокода для неиспользуемого процессора x86_64",
             "Select a partition to install": "Выберите раздел для установки",
             "The selected partition will be replaced with Linexin.": "Выбранный раздел будет заменен на Linexin.",
             "Manage your disks": "Управление дисками",
@@ -408,4 +409,17 @@ translations = {
     "Download Linexin-suggested Flatpaks": "Загрузить рекомендованные Linexin Flatpak-пакеты",
     "Install system updates during installation": "Установить обновления системы во время установки",
     "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>Ошибка: Раздел слишком мал!</b></span>\nМинимальный требуемый размер — 25 ГБ.\nВыбранный размер: {} ГБ",
+    
+    # Home Partition Assignment
+    "Details: {}": "Подробности: {}",
+    "Unselect": "Отменить выбор",
+    "Assign /home": "Назначить /home",
+    "Assign /home Partition": "Назначение раздела /home",
+    "Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system.": "Выберите раздел для использования под /home.\nЭто позволяет хранить ваши личные файлы отдельно от системы.",
+    "Select": "Выбрать",
+    "No other suitable partitions found for /home assignment.": "Других подходящих разделов для назначения /home не найдено.",
+    "Format partition (Erase all data)": "Форматировать раздел (Стереть все данные)",
+    "<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)": "<span color='red'><b>Форматировать и использовать</b></span> (Все данные на {} будут удалены)",
+    "<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)": "<span color='green'><b>Монтировать и сохранить данные</b></span> (Файлы на {} будут сохранены)",
+    "Formatting Home partition...": "Форматирование раздела Home...",
 }

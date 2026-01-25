@@ -371,6 +371,7 @@ translations = {
             "Install the system": "सिस्टम इंस्टॉल करें",
             "Removing unused GPU drivers": "अनुपयोगी GPU ड्राइवर हटाए जा रहे हैं",
             "Removing unused microcode": "अनुपयोगी माइक्रोकोड हटाया जा रहा है",
+            "Removing ucode for non-used x86_64 processor": "अप्रयुक्त x86_64 प्रोसेसर के लिए माइक्रिकोड हटाया जा रहा है",
             "Select a partition to install": "इंस्टॉल करने के लिए एक विभाजन चुनें",
             "The selected partition will be replaced with Linexin.": "चयनित विभाजन को Linexin से बदल दिया जाएगा।",
             "Manage your disks": "अपने डिस्क प्रबंधित करें",
@@ -408,4 +409,17 @@ translations = {
     "Download Linexin-suggested Flatpaks": "Linexin द्वारा सुझाए गए Flatpaks डाउनलोड करें",
     "Install system updates during installation": "स्थापना के दौरान सिस्टम अपडेट इंस्टॉल करें",
     "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>त्रुटि: विभाजन बहुत छोटा है!</b></span>\nन्यूनतम आवश्यक आकार 25GB है।\nचयनित आकार: {}GB",
+
+    # Home Partition Assignment
+    "Details: {}": "विवरण: {}",
+    "Unselect": "अचयनित करें",
+    "Assign /home": "/home आवंटित करें",
+    "Assign /home Partition": "/home विभाजन आवंटित करें",
+    "Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system.": "/home के लिए उपयोग करने के लिए एक विभाजन चुनें।\nयह आपको अपनी व्यक्तिगत फ़ाइलों को सिस्टम से अलग रखने की अनुमति देता है।",
+    "Select": "चुनें",
+    "No other suitable partitions found for /home assignment.": "/home आवंटन के लिए कोई अन्य उपयुक्त विभाजन नहीं मिला।",
+    "Format partition (Erase all data)": "विभाजन को प्रारूपित करें (सभी डेटा मिटाएं)",
+    "<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)": "<span color='red'><b>प्रारूपित करें और उपयोग करें</b></span> ({} पर सारा डेटा मिटा दिया जाएगा)",
+    "<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)": "<span color='green'><b>माउंट करें और डेटा रखें</b></span> ({} पर फ़ाइलें सुरक्षित रहेंगी)",
+    "Formatting Home partition...": "Home विभाजन को प्रारूपित किया जा रहा है...",
 }

@@ -371,6 +371,7 @@ translations = {
             "Install the system": "安装系统",
             "Removing unused GPU drivers": "正在删除未使用的GPU驱动程序",
             "Removing unused microcode": "正在删除未使用的微码",
+            "Removing ucode for non-used x86_64 processor": "正在删除未使用的 x86_64 处理器微码",
             "Select a partition to install": "选择要安装的分区",
             "The selected partition will be replaced with Linexin.": "选定的分区将被 Linexin 替换。",
             "Manage your disks": "管理磁盘",
@@ -408,4 +409,17 @@ translations = {
     "Download Linexin-suggested Flatpaks": "下载 Linexin 推荐的 Flatpak 应用",
     "Install system updates during installation": "在安装过程中安装系统更新",
     "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>错误：分区太小！</b></span>\n所需最小大小为 25GB。\n所选大小：{}GB",
+
+    # Home Partition Assignment
+    "Details: {}": "详细信息：{}",
+    "Unselect": "取消选择",
+    "Assign /home": "分配 /home",
+    "Assign /home Partition": "分配 /home 分区",
+    "Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system.": "选择一个分区用于 /home。\n这允许您将个人文件与系统分开保存。",
+    "Select": "选择",
+    "No other suitable partitions found for /home assignment.": "未找到适合分配给 /home 的其他分区。",
+    "Format partition (Erase all data)": "格式化分区 (清除所有数据)",
+    "<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)": "<span color='red'><b>格式化并使用</b></span> ({} 上的所有数据将被清除)",
+    "<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)": "<span color='green'><b>挂载并保留数据</b></span> ({} 上的文件将被保留)",
+    "Formatting Home partition...": "正在格式化 Home 分区...",
 }

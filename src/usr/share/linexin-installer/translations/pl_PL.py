@@ -392,6 +392,7 @@ translations = {
             "Install the system": "Zainstaluj System",
             "Removing unused GPU drivers": "Usuwanie nieużywanych sterowników graficznych",
             "Removing unused microcode": "Usuwanie nieużywanego mikrokodu",
+            "Removing ucode for non-used x86_64 processor": "Usuwanie mikrokodu dla nieużywanego procesora x86_64",
             "Select a partition to install": "Wybierz partycję do instalacji",
             "The selected partition will be replaced with Linexin.": "Wybrana partycja zostanie zastąpiona przez Linexin.",
             "Manage your disks": "Zarządzaj dyskami",
@@ -429,4 +430,17 @@ translations = {
     "Download Linexin-suggested Flatpaks": "Pobierz sugerowane przez Linexin pakiety Flatpak",
     "Install system updates during installation": "Zainstaluj aktualizacje systemowe podczas instalacji",
     "<span color='red'><b>Error: Partition is too small!</b></span>\nMinimum required size is 25GB.\nSelected size: {}GB": "<span color='red'><b>Błąd: Partycja jest zbyt mała!</b></span>\nWymagany rozmiar minimalny to 25 GB.\nWybrany rozmiar: {} GB",
+
+    "Details: {}": "Szczegóły: {}",
+    "Unselect": "Odznacz",
+    # Home Partition Assignment
+    "Assign /home": "Przydziel /home",
+    "Assign /home Partition": "Przydziel partycję /home",
+    "Select a partition to use for /home.\nThis allows you to keep your personal files separate from the system.": "Wybierz partycję do użycia jako /home.\nPozwala to zachować pliki osobiste oddzielnie od systemu.",
+    "Select": "Wybierz",
+    "No other suitable partitions found for /home assignment.": "Nie znaleziono innych odpowiednich partycji do przydzielenia /home.",
+    "Format partition (Erase all data)": "Sformatuj partycję (Usuń wszystkie dane)",
+    "<span color='red'><b>Format &amp; Use</b></span> (All data on {} will be erased)": "<span color='red'><b>Sformatuj i użyj</b></span> (Wszystkie dane na {} zostaną usunięte)",
+    "<span color='green'><b>Mount &amp; Keep Data</b></span> (Files on {} will be preserved)": "<span color='green'><b>Zamontuj i zachowaj dane</b></span> (Pliki na {} zostaną zachowane)",
+    "Formatting Home partition...": "Formatowanie partycji Home...",
 }
