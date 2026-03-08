@@ -847,6 +847,59 @@ class InstallationWidget(Gtk.Box):
         
         echo "Configuration files copied successfully"
         """
+
+    def _get_copy_kernel_command(self):
+        """Generate a bash command to reliably copy the kernel from the live media."""
+        return """
+        TARGET_DIR="/tmp/linexin_installer/root/boot"
+        mkdir -p "$TARGET_DIR"
+        
+        # Array of potential kernel locations in the live environment
+        KERNEL_LOCATIONS=(
+            "/run/archiso/bootmnt/arch/boot/x86_64"
+            "/run/archiso/bootmnt/*/boot/x86_64"
+            "/run/archiso/bootmnt/EFI/archiso"
+            "/usr/lib/modules/$(uname -r)"
+            "/boot"
+        )
+        
+        echo "Searching for kernel (vmlinuz-linux)..."
+        KERNEL_FOUND=false
+        
+        for LOC in "${KERNEL_LOCATIONS[@]}"; do
+            # Expand globs and check if path exists
+            for EXPANDED_LOC in $LOC; do
+                if [ -d "$EXPANDED_LOC" ]; then
+                    if ls "$EXPANDED_LOC"/vmlinuz* >/dev/null 2>&1 || ls "$EXPANDED_LOC"/vmlinuz-linux >/dev/null 2>&1; then
+                        echo "Found kernel in $EXPANDED_LOC"
+                        cp -rf "$EXPANDED_LOC"/*vmlinuz* "$TARGET_DIR/" 2>/dev/null || true
+                        
+                        # Fix up the name so bootloader.sh finds it correctly
+                        if [ ! -f "$TARGET_DIR/vmlinuz-linux" ]; then
+                            # Find any vmlinuz file and rename it
+                            FOUND_KERNEL=$(ls "$TARGET_DIR"/vmlinuz* | head -n1 2>/dev/null)
+                            if [ -n "$FOUND_KERNEL" ]; then
+                                mv "$FOUND_KERNEL" "$TARGET_DIR/vmlinuz-linux"
+                            fi
+                        fi
+                        
+                        KERNEL_FOUND=true
+                        break 2
+                    fi
+                fi
+            done
+        done
+        
+        if [ "$KERNEL_FOUND" = true ]; then
+            echo "Kernel copied to $TARGET_DIR successfully."
+        else
+            echo "Warning: Could not find kernel image on live media."
+            echo "The pacman step in post-install will attempt to download it."
+        fi
+        
+        # bootloader.sh or pacman-S linux will handle the rest.
+        exit 0
+        """
     
     def start_installation(self, loop_device="/dev/loop0"):
         """Start the installation process.
@@ -946,7 +999,7 @@ class InstallationWidget(Gtk.Box):
 
         steps.append(InstallationStep(
             label="Copying kernel",
-            command=["bash", "-c", "sudo cp -rf /run/archiso/bootmnt/arch/boot/x86_64/* /tmp/linexin_installer/root/boot"],
+            command=["sudo", "bash", "-c", self._get_copy_kernel_command()],
             description="Ensuring kernel image is present on new rootfs in case of no internet",
             weight=1.0,
             critical=True
