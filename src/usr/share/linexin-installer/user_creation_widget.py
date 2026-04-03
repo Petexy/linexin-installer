@@ -814,9 +814,9 @@ if command -v zsh &>/dev/null; then
     if [ -f /etc/skel/.zshrc ]; then
         cp -f /etc/skel/.zshrc "/home/$USERNAME/.zshrc"
     fi
-    # Set zsh as default shell if available
-    chsh -s /bin/zsh "$USERNAME" &>/dev/null || true
-    echo "✓ Zsh set as default shell"
+    # Set bash as default shell if available
+    chsh -s /bin/bash "$USERNAME" &>/dev/null || true
+    echo "✓ bash set as default shell"
 fi
 
 # Copy any other skel files
