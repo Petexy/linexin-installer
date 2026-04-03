@@ -47,6 +47,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         super().__init__(application=app)
         self.set_title("")
+        self.set_size_request(800, 500)
         self.set_default_size(1100, 850)
         self.progress_visible = False
         self.install_started = False
@@ -416,6 +417,10 @@ class Installer(Adw.Application):
     def do_activate(self):
         win = MainWindow(self)
         win.present()
+
+        # Prevent the screen from sleeping while the installer is running
+        self.inhibit(win, Gtk.ApplicationInhibitFlags.SUSPEND | Gtk.ApplicationInhibitFlags.IDLE,
+                     "Installation in progress")
 
 if __name__ == "__main__":
     app = Installer()

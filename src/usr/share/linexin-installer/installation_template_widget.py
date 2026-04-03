@@ -51,16 +51,20 @@ class InstallationTemplateWidget(Gtk.Box):
         self.view_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.append(self.view_stack)
 
-        # 1. Main Content View
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=40)
+        # 1. Main Content View — wrapped in a ScrolledWindow for small screens
+        main_scroll = Gtk.ScrolledWindow()
+        main_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        main_scroll.set_vexpand(True)
+        self.view_stack.add_named(main_scroll, "main")
+
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=30)
         self.content_box.set_margin_top(30)
         self.content_box.set_margin_bottom(30)
         self.content_box.set_margin_start(40)
         self.content_box.set_margin_end(40)
-        self.content_box.set_vexpand(True)
         self.content_box.set_valign(Gtk.Align.CENTER)
-        
-        self.view_stack.add_named(self.content_box, "main")
+        self.content_box.set_vexpand(True)
+        main_scroll.set_child(self.content_box)
 
         # Title & Subtitle
         self.title = Gtk.Label()

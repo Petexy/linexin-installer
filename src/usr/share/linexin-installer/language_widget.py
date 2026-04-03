@@ -85,8 +85,8 @@ class LanguageWidget(Gtk.Box):
         get_localization_manager().register_widget(self)
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
-        self.set_margin_top(30)
-        self.set_margin_bottom(30)
+        self.set_margin_top(15)
+        self.set_margin_bottom(15)
  
         # Setup CSS
         self.setup_css()

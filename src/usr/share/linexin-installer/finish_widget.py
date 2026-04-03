@@ -42,11 +42,11 @@ class FinishWidget(Gtk.Box):
         self.setup_custom_css()
 
         # Create main container with some breathing room
-        self.main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=30)
-        self.main_container.set_margin_top(60)
-        self.main_container.set_margin_bottom(60)
-        self.main_container.set_margin_start(80)
-        self.main_container.set_margin_end(80)
+        self.main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        self.main_container.set_margin_top(20)
+        self.main_container.set_margin_bottom(20)
+        self.main_container.set_margin_start(40)
+        self.main_container.set_margin_end(40)
         self.main_container.set_valign(Gtk.Align.CENTER)
         self.main_container.set_halign(Gtk.Align.CENTER)
         
@@ -81,12 +81,12 @@ class FinishWidget(Gtk.Box):
         self.subtitle_label.set_wrap(True)
         self.subtitle_label.set_justify(Gtk.Justification.CENTER)
         self.subtitle_label.set_margin_top(10)
-        self.subtitle_label.set_margin_bottom(30)
+        self.subtitle_label.set_margin_bottom(10)
         self.main_container.append(self.subtitle_label)
 
         # Button container
         button_container = Gtk.Box(halign=Gtk.Align.CENTER, spacing=20)
-        button_container.set_margin_top(20)
+        button_container.set_margin_top(10)
         
         # Reboot button with special styling
         self.btn_reboot = Gtk.Button(label=_("Reboot"))

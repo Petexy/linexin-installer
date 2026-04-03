@@ -250,6 +250,7 @@ fi
 # Regenerate initramfs
 mkinitcpio -P 2>/dev/null || true
 
-
+flatpak override --filesystem=xdg-config/gtk-4.0:ro
+flatpak override --filesystem=xdg-config/gtk-3.0:ro
 
 print_msg "Post-installation configuration completed successfully!"

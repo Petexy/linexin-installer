@@ -50,8 +50,8 @@ class InstallationWidget(Gtk.Box):
         super().__init__(**kwargs)
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
-        self.set_margin_top(30)
-        self.set_margin_bottom(30)
+        self.set_margin_top(15)
+        self.set_margin_bottom(15)
 
         
         # State tracking
@@ -1099,21 +1099,65 @@ class InstallationWidget(Gtk.Box):
             print(f"Error reading flatpak config: {e}")
 
         if install_flatpaks:
-            steps.append(InstallationStep(
-                label="Setting up Flatpak",
-                command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "update", "--appstream"],
-                description="Installing Flatpak apps and support for AppImage",
-                weight=5.0,
-                critical=False
-            ))
+            # Determine which Flatpak packages to install
+            all_flatpaks = [
+                "app.zen_browser.zen",
+                "io.github.Faugus.faugus-launcher",
+                "it.mijorus.gearlever",
+                "com.github.tchx84.Flatseal",
+                "com.usebottles.bottles",
+                "app.twintaillauncher.ttl",
+                "com.heroicgameslauncher.hgl",
+            ]
 
-            steps.append(InstallationStep(
-                label="Installing Flatpak and AppImage support",
-                command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "install", "app.zen_browser.zen", "io.github.Faugus.faugus-launcher", "it.mijorus.gearlever", "com.github.tchx84.Flatseal", "com.usebottles.bottles", "app.twintaillauncher.ttl", "com.heroicgameslauncher.hgl", "--assumeyes"],
-                description="Installing Flatpak apps and support for AppImage",
-                weight=5.0,
-                critical=False
-            ))
+            # Check if user made a custom package selection
+            selected_flatpaks = list(all_flatpaks)  # default: all
+            try:
+                import json
+                pkg_config = "/tmp/installer_config/selected_packages"
+                if os.path.exists(pkg_config):
+                    with open(pkg_config, 'r') as f:
+                        selected_ids = json.loads(f.read().strip())
+                    selected_flatpaks = [p for p in all_flatpaks if p in selected_ids]
+                    print(f"Custom package selection: {selected_flatpaks}")
+            except Exception as e:
+                print(f"Error reading package selection, using defaults: {e}")
+
+            if selected_flatpaks:
+                steps.append(InstallationStep(
+                    label="Setting up Flatpak",
+                    command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "update", "--appstream"],
+                    description="Installing Flatpak apps and support for AppImage",
+                    weight=5.0,
+                    critical=False
+                ))
+
+                steps.append(InstallationStep(
+                    label="Installing Flatpak and AppImage support",
+                    command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "install"] + selected_flatpaks + ["--assumeyes"],
+                    description="Installing Flatpak apps and support for AppImage",
+                    weight=5.0,
+                    critical=False
+                ))
+
+        # Check if user deselected any pacman packages via Advanced Setup
+        try:
+            import json
+            removal_config = "/tmp/installer_config/removed_packages"
+            if os.path.exists(removal_config):
+                with open(removal_config, 'r') as f:
+                    removed_pkgs = json.loads(f.read().strip())
+                if removed_pkgs:
+                    print(f"Removing user-deselected packages: {removed_pkgs}")
+                    steps.append(InstallationStep(
+                        label="Removing deselected packages",
+                        command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman", "-Rns", "--noconfirm"] + removed_pkgs,
+                        description="Removing packages deselected in Advanced Setup",
+                        weight=3.0,
+                        critical=False
+                    ))
+        except Exception as e:
+            print(f"Error reading removed packages config: {e}")
 
         steps.append(InstallationStep(
             label="Cleaning out rootfs",

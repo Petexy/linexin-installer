@@ -61,11 +61,11 @@ class WelcomeWidget(Gtk.Box):
         self.setup_custom_css()
 
         # Create main container with some breathing room
-        self.main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=40)
-        self.main_container.set_margin_top(60)
-        self.main_container.set_margin_bottom(60)
-        self.main_container.set_margin_start(80)
-        self.main_container.set_margin_end(80)
+        self.main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        self.main_container.set_margin_top(20)
+        self.main_container.set_margin_bottom(20)
+        self.main_container.set_margin_start(40)
+        self.main_container.set_margin_end(40)
         self.main_container.set_valign(Gtk.Align.CENTER)
         self.main_container.set_halign(Gtk.Align.CENTER)
         
@@ -76,7 +76,7 @@ class WelcomeWidget(Gtk.Box):
         text_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         text_container.set_halign(Gtk.Align.CENTER)
         text_container.set_valign(Gtk.Align.CENTER)
-        text_container.set_size_request(-1, 80)
+        text_container.set_size_request(-1, 50)
 
         # Animated welcome label
         self.welcome_label = Gtk.Label()
@@ -95,13 +95,13 @@ class WelcomeWidget(Gtk.Box):
         self.welcome_image.set_halign(Gtk.Align.CENTER)
         self.welcome_image.set_valign(Gtk.Align.CENTER)
         self.welcome_image.add_css_class("logo_image")
-        self.welcome_image.set_size_request(250, 250)  # Reduced from 300x300
+        self.welcome_image.set_size_request(140, 140)
         self.logo_container.append(self.welcome_image)
         self.main_container.append(self.logo_container)
 
         # Button container with hover effects
         button_container = Gtk.Box(halign=Gtk.Align.CENTER, spacing=20)
-        button_container.set_margin_top(40)
+        button_container.set_margin_top(15)
         
         self.btn_install = Gtk.Button(label=_("Begin Installation"))
         self.btn_install.add_css_class("suggested-action")
