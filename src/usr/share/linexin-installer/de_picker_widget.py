@@ -49,8 +49,8 @@ class DEPicker(Gtk.Box):
         self.set_vexpand(True)
         
         # Horizontal margins
-        self.set_margin_start(15)
-        self.set_margin_end(15)
+        self.set_margin_start(40)
+        self.set_margin_end(40)
         self.set_margin_top(5)
         self.set_margin_bottom(5)
         # --- MODIFIED SECTION END ---
@@ -62,7 +62,7 @@ class DEPicker(Gtk.Box):
         title = Gtk.Label()
         title.set_markup('<span size="x-large" weight="bold">Choose Your Option</span>')
         title.set_halign(Gtk.Align.CENTER)
-        title.set_margin_bottom(4)
+        title.set_margin_bottom(20)
         self.append(title)
         
         # Get script directory for icons
@@ -107,15 +107,6 @@ class DEPicker(Gtk.Box):
         checkbox_box.set_halign(Gtk.Align.CENTER)
         checkbox_box.set_margin_top(6)
 
-        # Flatpak checkbox
-        self.flatpak_check = Gtk.CheckButton(label="Download Linexin-suggested Flatpaks")
-        self.flatpak_check.set_active(self.has_internet)
-        self.flatpak_check.set_sensitive(self.has_internet)
-        self.flatpak_check.add_css_class("option_checkbox")
-        if not self.has_internet:
-            self.flatpak_check.set_tooltip_text("Internet connection required")
-        checkbox_box.append(self.flatpak_check)
-
         # Updates checkbox
         self.update_check = Gtk.CheckButton(label="Install system updates during installation")
         self.update_check.set_active(self.has_internet)
@@ -127,25 +118,10 @@ class DEPicker(Gtk.Box):
 
         self.append(checkbox_box)
 
-        # Advanced Setup button
-        self.advanced_btn = Gtk.Button()
-        self.advanced_btn.set_label("Advanced Setup")
-        self.advanced_btn.add_css_class("advanced_button")
-        self.advanced_btn.set_size_request(200, 40)
-        self.advanced_btn.set_halign(Gtk.Align.CENTER)
-        self.advanced_btn.set_margin_top(4)
-        self.advanced_btn.connect("clicked", self.on_advanced_setup_clicked)
-
-        advanced_hover = Gtk.EventControllerMotion()
-        advanced_hover.connect("enter", lambda c, x, y: self.advanced_btn.add_css_class("pulse-animation"))
-        advanced_hover.connect("leave", lambda c: self.advanced_btn.remove_css_class("pulse-animation"))
-        self.advanced_btn.add_controller(advanced_hover)
-
-        self.append(self.advanced_btn)
-
         # Package selections: None means "not customized, use all defaults"
         self.selected_packages = None
         self._cached_packages = None
+        self.selected_bootloader = "automatic"
 
         navigation_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
         navigation_btns.set_halign(Gtk.Align.CENTER)
@@ -381,6 +357,7 @@ class DEPicker(Gtk.Box):
         # Write selection to file
         self.write_selection_to_file()
         self.write_package_selection()
+        self.write_bootloader_selection()
         
         if self.on_continue_callback:
             # Pass the selected option to the callback
@@ -389,13 +366,11 @@ class DEPicker(Gtk.Box):
             print("DEBUG: No continue callback provided")
     
     def write_selection_to_file(self):
-        """Write the selected option index and checkbox states"""
+        """Write the selected option index and update checkbox state."""
         config_dir = "/tmp/installer_config"
         config_file_de = os.path.join(config_dir, "de_selection")
-        config_file_flatpak = os.path.join(config_dir, "install_flatpaks")
         config_file_updates = os.path.join(config_dir, "install_updates")
-        
-        flatpak_val = "1" if self.flatpak_check.get_active() else "0"
+
         updates_val = "1" if self.update_check.get_active() else "0"
         
         try:
@@ -411,25 +386,23 @@ class DEPicker(Gtk.Box):
                 os.makedirs(config_dir, exist_ok=True)
                 with open(config_file_de, 'w') as f:
                     f.write(str(self.selected_option))
-                with open(config_file_flatpak, 'w') as f:
-                    f.write(flatpak_val)
                 with open(config_file_updates, 'w') as f:
                     f.write(updates_val)
                 print(f"DEBUG: Wrote selection index {self.selected_option} and flags to {config_dir}")
             else:
                 # Need elevated privileges, use pkexec
                 print("DEBUG: Elevated privileges required, using pkexec")
-                self.write_selection_with_pkexec(config_dir, config_file_de, config_file_flatpak, config_file_updates, flatpak_val, updates_val)
+                self.write_selection_with_pkexec(config_dir, config_file_de, config_file_updates, updates_val)
             
         except Exception as e:
             print(f"ERROR: Failed to write selection to file: {e}")
             # Try with pkexec as fallback
             try:
-                self.write_selection_with_pkexec(config_dir, config_file_de, config_file_flatpak, config_file_updates, flatpak_val, updates_val)
+                self.write_selection_with_pkexec(config_dir, config_file_de, config_file_updates, updates_val)
             except Exception as e2:
                 print(f"ERROR: Fallback with pkexec also failed: {e2}")
-    
-    def write_selection_with_pkexec(self, config_dir, config_file_de, config_file_flatpak, config_file_updates, flatpak_val, updates_val):
+
+    def write_selection_with_pkexec(self, config_dir, config_file_de, config_file_updates, updates_val):
         """Write selection file using pkexec for elevated privileges"""
         import subprocess
         
@@ -437,9 +410,8 @@ class DEPicker(Gtk.Box):
         script_content = f"""#!/bin/bash
 mkdir -p "{config_dir}"
 echo "{self.selected_option}" > "{config_file_de}"
-echo "{flatpak_val}" > "{config_file_flatpak}"
 echo "{updates_val}" > "{config_file_updates}"
-chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
+chmod 644 "{config_file_de}" "{config_file_updates}"
 """
         
         # Write temp script
@@ -525,6 +497,43 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
                         pass
         except Exception as e:
             print(f"ERROR: Failed to write package selection: {e}")
+
+    def write_bootloader_selection(self):
+        """Write selected bootloader mode for bootloader.sh."""
+        config_dir = "/tmp/installer_config"
+        config_file = os.path.join(config_dir, "bootloader_choice")
+        selection = (self.selected_bootloader or "automatic").strip().lower()
+        valid = {"automatic", "systemd-boot", "grub", "refind"}
+        if selection not in valid:
+            selection = "automatic"
+
+        try:
+            if os.path.exists(config_dir):
+                can_write = os.access(config_dir, os.W_OK)
+            else:
+                can_write = os.access(os.path.dirname(config_dir), os.W_OK)
+
+            if can_write:
+                os.makedirs(config_dir, exist_ok=True)
+                with open(config_file, 'w') as f:
+                    f.write(selection)
+                print(f"DEBUG: Wrote bootloader selection '{selection}' to {config_file}")
+            else:
+                temp_script = "/tmp/bootloader_selection_writer.sh"
+                with open(temp_script, 'w') as f:
+                    f.write(f'#!/bin/bash\nmkdir -p "{config_dir}"\n')
+                    f.write(f'echo "{selection}" > "{config_file}"\n')
+                    f.write(f'chmod 644 "{config_file}"\n')
+                os.chmod(temp_script, 0o755)
+                try:
+                    subprocess.run(['pkexec', 'bash', temp_script], capture_output=True, text=True, timeout=30)
+                finally:
+                    try:
+                        os.remove(temp_script)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"ERROR: Failed to write bootloader selection: {e}")
     
     def get_selected_option(self):
         """Get the currently selected option"""
@@ -542,6 +551,8 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         'iproute2', 'iputils', 'kbd',
     }
 
+    BOOTLOADER_PACKAGES = {'grub', 'efibootmgr', 'os-prober', 'refind'}
+
     # Categories that are hidden from Advanced Setup
     # Essential packages can't be removed; DE packages are controlled by the DE picker above
     HIDDEN_CATEGORIES = {"System (Essential)", "Desktop Environment"}
@@ -552,8 +563,14 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         if name in self.ESSENTIAL_PACKAGES:
             return None
 
+        if name in self.BOOTLOADER_PACKAGES:
+            return None
+
         gl = groups.lower() if groups else ""
         nl = name.lower()
+
+        if any(x in nl for x in ('grub', 'refind', 'efibootmgr', 'os-prober', 'shim')):
+            return None
 
         if 'gnome' in gl or nl.startswith('gnome-') or name in ('gdm', 'mutter', 'nautilus'):
             return None
@@ -695,7 +712,7 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         return self._cached_packages
 
     def on_advanced_setup_clicked(self, button):
-        """Open the Advanced Setup dialog for package selection."""
+        """Open the Advanced Setup dialog with package and bootloader settings."""
         # Query packages (cached after first run)
         packages = self._get_all_packages()
 
@@ -714,8 +731,27 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         dialog.set_content(main_box)
 
         header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle.new("Advanced Setup", "Select packages to install"))
+        header.set_title_widget(Adw.WindowTitle.new("Advanced Setup", "Packages and bootloader"))
         main_box.append(header)
+
+        switcher = Gtk.StackSwitcher()
+        switcher.set_halign(Gtk.Align.CENTER)
+        switcher.set_margin_top(10)
+        switcher.set_margin_bottom(6)
+        main_box.append(switcher)
+
+        settings_stack = Gtk.Stack()
+        settings_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        settings_stack.set_transition_duration(180)
+        settings_stack.set_vexpand(True)
+        switcher.set_stack(settings_stack)
+        main_box.append(settings_stack)
+
+        packages_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        settings_stack.add_titled(packages_page, "packages", "Packages")
+
+        bootloader_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        settings_stack.add_titled(bootloader_page, "bootloader", "Bootloader")
 
         # Search entry
         search_entry = Gtk.SearchEntry()
@@ -723,13 +759,13 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         search_entry.set_margin_start(24)
         search_entry.set_margin_end(24)
         search_entry.set_margin_top(12)
-        main_box.append(search_entry)
+        packages_page.append(search_entry)
 
         # Scrollable content
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        main_box.append(scrolled)
+        packages_page.append(scrolled)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         content_box.set_margin_top(12)
@@ -832,13 +868,14 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
                 current_cat_widgets[cat_label] = (sel_row, [])
             current_cat_widgets[cat_label][1].append(row)
 
+        row_search_map = {row: search_text for row, _cat_label, _sel_row, search_text in all_rows}
+
         def on_search_changed(entry):
             query = entry.get_text().lower().strip()
             for cat_label, (sel_row, rows_for_cat) in current_cat_widgets.items():
                 any_visible = False
-                for i, row in enumerate(rows_for_cat):
-                    # Find matching all_rows entry
-                    search_text = all_rows[[j for j, (r, _, _, _) in enumerate(all_rows) if r is row][0]][3]
+                for row in rows_for_cat:
+                    search_text = row_search_map.get(row, "")
                     visible = not query or query in search_text
                     row.set_visible(visible)
                     if visible:
@@ -847,6 +884,60 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
                 sel_row.set_visible(any_visible and not query)
 
         search_entry.connect("search-changed", on_search_changed)
+
+        bootloader_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        bootloader_content.set_margin_top(16)
+        bootloader_content.set_margin_bottom(16)
+        bootloader_content.set_margin_start(24)
+        bootloader_content.set_margin_end(24)
+        bootloader_content.set_vexpand(True)
+        bootloader_page.append(bootloader_content)
+
+        bl_title = Gtk.Label()
+        bl_title.set_markup('<span size="large" weight="bold">Bootloader Selection</span>')
+        bl_title.set_halign(Gtk.Align.START)
+        bootloader_content.append(bl_title)
+
+        bl_desc = Gtk.Label()
+        bl_desc.set_text("Choose how the bootloader should be configured during installation.")
+        bl_desc.set_wrap(True)
+        bl_desc.set_halign(Gtk.Align.START)
+        bl_desc.add_css_class("dim-label")
+        bootloader_content.append(bl_desc)
+
+        bootloader_checks = {}
+
+        bootloader_options = [
+            ("automatic", "Automatic setup", "Use the current bootloader.sh logic (recommended)"),
+            ("systemd-boot", "systemd-boot", "Install systemd-boot (UEFI only)"),
+            ("grub", "GRUB", "Install GRUB (UEFI or Legacy BIOS)"),
+            ("refind", "rEFInd", "Install rEFInd (UEFI only)"),
+        ]
+
+        group_root = None
+        for key, label, subtitle in bootloader_options:
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            row.set_margin_top(4)
+            row.set_margin_bottom(4)
+
+            check = Gtk.CheckButton(label=label)
+            if group_root is None:
+                group_root = check
+            else:
+                check.set_group(group_root)
+
+            check.set_active(self.selected_bootloader == key)
+            row.append(check)
+
+            desc = Gtk.Label()
+            desc.set_text(subtitle)
+            desc.set_halign(Gtk.Align.START)
+            desc.set_margin_start(28)
+            desc.add_css_class("dim-label")
+            row.append(desc)
+
+            bootloader_checks[key] = check
+            bootloader_content.append(row)
 
         # Bottom bar
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -864,9 +955,19 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         apply_btn.add_css_class("suggested-action")
 
         def on_apply(btn):
+            if self.selected_packages is None:
+                self.selected_packages = {pkg_id: True for pkg_id in packages}
+
             for pkg_id, check in checkbuttons.items():
                 self.selected_packages[pkg_id] = check.get_active()
+
+            for key, check in bootloader_checks.items():
+                if check.get_active():
+                    self.selected_bootloader = key
+                    break
+
             self.write_package_selection()
+            self.write_bootloader_selection()
             dialog.close()
 
         apply_btn.connect("clicked", on_apply)
@@ -892,20 +993,15 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         print(f"DEBUG: Refreshing UI. Internet status: {self.has_internet}")
         
         # Update checkboxes
-        current_status = self.flatpak_check.get_sensitive()
+        current_status = self.update_check.get_sensitive()
         if self.has_internet != current_status:
-            self.flatpak_check.set_sensitive(self.has_internet)
             self.update_check.set_sensitive(self.has_internet)
             
             if self.has_internet:
-                self.flatpak_check.set_active(True)
                 self.update_check.set_active(True)
-                self.flatpak_check.set_tooltip_text(None)
                 self.update_check.set_tooltip_text(None)
             else:
-                self.flatpak_check.set_active(False)
                 self.update_check.set_active(False)
-                self.flatpak_check.set_tooltip_text("Internet connection required")
                 self.update_check.set_tooltip_text("Internet connection required")
         
         # Clear existing options in the container
@@ -1055,25 +1151,6 @@ chmod 644 "{config_file_de}" "{config_file_flatpak}" "{config_file_updates}"
         }
         
         .back_button:active {
-            transform: translateY(0px);
-        }
-
-        .advanced_button {
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 0.95em;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            opacity: 0.85;
-        }
-
-        .advanced_button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px alpha(@theme_bg_color, 0.3);
-            opacity: 1.0;
-        }
-
-        .advanced_button:active {
             transform: translateY(0px);
         }
 

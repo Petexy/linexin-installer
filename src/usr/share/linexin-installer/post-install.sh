@@ -219,8 +219,108 @@ check_de_selection() {
     fi
 }
 
+is_flatpak_selected() {
+    local flatpak_id="$1"
+    # If no explicit selection file exists, treat defaults as selected.
+    if [[ ! -f "/selected_packages" ]]; then
+        return 0
+    fi
+    grep -q "\"${flatpak_id}\"" /selected_packages
+}
+
+is_pacman_removed() {
+    local pkg_id="$1"
+    if [[ ! -f "/removed_packages" ]]; then
+        return 1
+    fi
+    grep -q "\"${pkg_id}\"" /removed_packages
+}
+
+build_kinexin_launchers() {
+    local launchers=()
+
+    # Keep Zen only if selected in Advanced Setup Flatpak choices.
+    if is_flatpak_selected "app.zen_browser.zen"; then
+        launchers+=("applications:app.zen_browser.zen.desktop")
+    fi
+
+    # Core launcher kept always.
+    launchers+=("preferred://filemanager")
+
+    # KDE Discover may be deselected as package.
+    if ! is_pacman_removed "discover" && ! is_pacman_removed "plasma-discover"; then
+        launchers+=("applications:org.kde.discover.desktop")
+    fi
+
+    # Linexin Center may be deselected depending on package naming.
+    if ! is_pacman_removed "linexincenter" && \
+       ! is_pacman_removed "linexin-center" && \
+       ! is_pacman_removed "github.petexy.linexincenter"; then
+        launchers+=("applications:github.petexy.linexincenter.desktop")
+    fi
+
+    # Steam may be deselected in Advanced Setup package list.
+    if ! is_pacman_removed "steam"; then
+        launchers+=("applications:steam.desktop")
+    fi
+
+    local IFS=,
+    echo "${launchers[*]}"
+}
+
+update_plasma_launcher_file() {
+    local cfg_file="$1"
+    local new_launchers="$2"
+    local target_section="[Containments][73][Applets][74][Configuration][General]"
+
+    [[ -f "$cfg_file" ]] || return 0
+
+    awk -v section="$target_section" -v launchers="$new_launchers" '
+    BEGIN {
+        in_target = 0
+    }
+    {
+        if ($0 == section) {
+            in_target = 1
+            print $0
+            next
+        }
+
+        if (in_target == 1 && $0 ~ /^\[/ && $0 != section) {
+            in_target = 0
+        }
+
+        if (in_target == 1 && $0 ~ /^launchers=/) {
+            print "launchers=" launchers
+            next
+        }
+
+        print $0
+    }' "$cfg_file" > "${cfg_file}.tmp" && mv "${cfg_file}.tmp" "$cfg_file"
+}
+
+update_kinexin_plasma_launchers() {
+    local de_value
+    de_value=$(cat "$DE_SELECTION_FILE" 2>/dev/null | tr -d '[:space:]')
+    [[ "$de_value" == "1" ]] || return 0
+
+    local launchers
+    launchers=$(build_kinexin_launchers)
+    print_msg "Updating Kinexin Plasma launchers: $launchers"
+
+    # Apply to /etc/skel for future users.
+    update_plasma_launcher_file "/etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc" "$launchers"
+
+    # Apply to existing non-live users in /home.
+    for user_home in /home/*; do
+        [[ -d "$user_home" ]] || continue
+        [[ "$user_home" == "/home/liveuser" ]] && continue
+        update_plasma_launcher_file "$user_home/.config/plasma-org.kde.plasma.desktop-appletsrc" "$launchers"
+    done
+}
+
 # Update system packages (only if internet is available)
-# Update system packages (only if internet is available)
+
 if check_internet; then
     # Check if updates are enabled by user
     UPDATES_ENABLED=1
@@ -235,11 +335,34 @@ if check_internet; then
         print_msg "Internet connection available, proceeding with package updates..."
         pacman -Sy archlinux-keyring linux --noconfirm 2>/dev/null || true
         pacman -Syu --noconfirm 2>/dev/null || true
+
+        # Update GNOME extensions only if Linexin (GNOME-based) is selected
+        DE_VAL=$(cat "$DE_SELECTION_FILE" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$DE_VAL" == "0" ]]; then
+            print_msg "Installing gnome-extensions-cli..."
+            pacman -S gnome-extensions-cli --noconfirm 2>/dev/null
+            if command -v gext &>/dev/null; then
+                CREATED_USER=$(ls /home/ | head -n 1)
+                if [[ -n "$CREATED_USER" ]]; then
+                    print_msg "Updating GNOME extensions for user $CREATED_USER..."
+                    sudo -u "$CREATED_USER" HOME="/home/$CREATED_USER" XDG_DATA_HOME="/home/$CREATED_USER/.local/share" gext --filesystem update -y 2>/dev/null || true
+                else
+                    print_warning "No user found in /home/, skipping GNOME extension update"
+                fi
+                print_msg "Removing gnome-extensions-cli..."
+                pacman -R gnome-extensions-cli --noconfirm 2>/dev/null || true
+            else
+                print_warning "gnome-extensions-cli not available, skipping GNOME extension update"
+            fi
+        else
+            print_msg "Non-GNOME DE selected, skipping GNOME extension update"
+        fi
     else
         print_msg "Updates disabled by user, skipping system update (pacman -Syu)..."
     fi
     
     check_de_selection
+    update_kinexin_plasma_launchers
 else
     print_warning "No internet connection available, skipping package updates"
     print_warning "You can run 'pacman -Syu' manually later when internet is available"

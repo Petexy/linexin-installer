@@ -39,6 +39,8 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_disk = None
         self.selected_disk_widget = None
         self.selected_home_partition = None
+        self.compact_mode = False
+        self._compact_applied = False
 
         # Connect map signal to refresh data when widget becomes visible
         self.connect("map", self._on_map)
@@ -62,6 +64,7 @@ class InstallationTemplateWidget(Gtk.Box):
         self.content_box.set_margin_bottom(30)
         self.content_box.set_margin_start(40)
         self.content_box.set_margin_end(40)
+        self.main_scroll = main_scroll
         self.content_box.set_valign(Gtk.Align.CENTER)
         self.content_box.set_vexpand(True)
         main_scroll.set_child(self.content_box)
@@ -125,10 +128,11 @@ class InstallationTemplateWidget(Gtk.Box):
         self.info_area_box.append(self.btn_assign_home)
 
         # Buttons
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
-        button_box.set_halign(Gtk.Align.CENTER)
-        button_box.set_margin_bottom(30)
-        self.append(button_box) # Note: We keep buttons outside the stack so they persist, or move inside if you want them hidden
+        self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        self.button_box.set_halign(Gtk.Align.CENTER)
+        self.button_box.set_margin_bottom(30)
+        self.append(self.button_box)
+        button_box = self.button_box # Note: We keep buttons outside the stack so they persist, or move inside if you want them hidden
 
         # Actually, if we want to "wait" effectively, we might want to hide these buttons or disable them.
         # But simpler is to put everything in the stack or just overlay. 
@@ -231,9 +235,65 @@ class InstallationTemplateWidget(Gtk.Box):
 
     def _on_map(self, widget):
         """Called when the widget becomes visible (mapped)"""
+        if not self._compact_applied:
+            self._detect_and_apply_compact_mode()
         # Only refresh if we are showing the main view
         if self.view_stack.get_visible_child_name() == "main":
             self.refresh()
+
+    def _detect_and_apply_compact_mode(self):
+        """Detect screen resolution and apply compact mode if needed."""
+        self._compact_applied = True
+        try:
+            display = Gdk.Display.get_default()
+            if display is None:
+                return
+            monitors = display.get_monitors()
+            if monitors.get_n_items() == 0:
+                return
+            monitor = monitors.get_item(0)
+            geom = monitor.get_geometry()
+            screen_height = geom.height
+            print(f"DEBUG: Detected screen height: {screen_height}px")
+        except Exception as e:
+            print(f"DEBUG: Could not detect screen resolution: {e}")
+            return
+
+        if screen_height <= 800:
+            self.compact_mode = True
+            print("DEBUG: Applying compact mode for low resolution")
+            self._apply_compact_layout()
+
+    def _apply_compact_layout(self):
+        """Reduce sizes and spacing so the widget fits without scrolling on small screens."""
+        # Reduce content box spacing and margins
+        self.content_box.set_spacing(10)
+        self.content_box.set_margin_top(10)
+        self.content_box.set_margin_bottom(10)
+
+        # Shrink title and subtitle fonts
+        self.title.set_markup('<span size="22000" weight="300">{}</span>'.format(_(
+            "Select a partition to install")))
+        self.subtitle.set_markup('<span size="10000">{}</span>'.format(_(
+            "The selected partition will be replaced with Linexin.")))
+
+        # Shrink info area margin
+        self.info_area_box.set_margin_top(10)
+
+        # Shrink buttons
+        self.btn_back.set_size_request(120, 38)
+        self.btn_proceed.set_size_request(120, 38)
+        self.btn_assign_home.set_size_request(120, 38)
+        self.button_box.set_margin_bottom(10)
+
+        # Rebuild partition cards at compact size
+        child = self.partition_cards_box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.partition_cards_box.remove(child)
+            child = next_child
+        self.partition_cards_box.set_spacing(12)
+        self._create_partition_cards()
 
     def refresh(self):
         """Refreshes the partition list and resets state"""
@@ -499,7 +559,10 @@ class InstallationTemplateWidget(Gtk.Box):
         for partition in self.partitions:
             card_button = Gtk.Button()
             card_button.add_css_class('card')
-            card_button.set_size_request(220, 200)
+            if self.compact_mode:
+                card_button.set_size_request(160, 140)
+            else:
+                card_button.set_size_request(220, 200)
 
             overlay = Gtk.Overlay()
             card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -512,7 +575,7 @@ class InstallationTemplateWidget(Gtk.Box):
                 icon_name = "drive-harddisk-symbolic" # Use disk icon
 
             icon = Gtk.Image.new_from_icon_name(icon_name)
-            icon.set_pixel_size(72)
+            icon.set_pixel_size(48 if self.compact_mode else 72)
             icon.set_halign(Gtk.Align.CENTER)
             if partition.get('type') == 'freespace':
                 icon.set_opacity(0.5) # Dim the icon for free space
@@ -590,8 +653,19 @@ class InstallationTemplateWidget(Gtk.Box):
             'parent_disk': self.selected_partition['parent_disk']
         })
 
-    def execute_template(self, disk_utility_widget):
-        """Starts the threading process for partitioning"""
+    def execute_template(self, disk_utility_widget, on_success_callback=None, on_error_callback=None, emit_continue_signal=True):
+        """Start the partitioning process.
+
+        Args:
+            disk_utility_widget: Disk utility widget to update with generated config.
+            on_success_callback: Optional callback to run after successful partitioning.
+            on_error_callback: Optional callback to run if partitioning fails.
+            emit_continue_signal: Whether to emit continue-to-next-page on success.
+        """
+        self._partition_success_callback = on_success_callback
+        self._partition_error_callback = on_error_callback
+        self._emit_continue_signal = emit_continue_signal
+
         # Show the progress dialog immediately on the main thread
         self.progress_dialog = self._show_progress_dialog(_("Partitioning"), _("Preparing disk..."))
         
@@ -832,11 +906,16 @@ class InstallationTemplateWidget(Gtk.Box):
     def _finish_success(self):
         if hasattr(self, 'progress_dialog'):
             self.progress_dialog.close()
-        self.emit('continue-to-next-page')
+        if getattr(self, '_partition_success_callback', None):
+            self._partition_success_callback()
+        if getattr(self, '_emit_continue_signal', True):
+            self.emit('continue-to-next-page')
 
     def _finish_error(self, error_msg):
         if hasattr(self, 'progress_dialog'):
             self.progress_dialog.close()
+        if getattr(self, '_partition_error_callback', None):
+            self._partition_error_callback(error_msg)
         self._show_error_dialog(_("Partitioning Failed"), error_msg)
 
     def _show_progress_dialog(self, heading, message):

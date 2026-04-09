@@ -302,6 +302,8 @@ translations = {
             "Cleaning out rootfs from LiveISO's config and applying post-install scripts": "正在从 LiveISO 配置中清理 rootfs 并应用安装后脚本",
             "Installing bootloader": "正在安装引导加载程序",
             "Checking for other systems installed and installing proper bootloader": "正在检查其他已安装的系统并安装适当的引导加载程序",
+            "Regenerating initramfs": "正在重新生成 initramfs",
+            "Single initramfs regeneration after all package changes": "所有软件包更改完成后一次性重新生成 initramfs",
             "Unmounting filesystems": "正在卸载文件系统",
             "Safely unmounting all filesystems": "正在安全卸载所有文件系统",
             "Changing GNOME extensions settings to mirror look and feel of the selected desktop layout": "正在更改 GNOME 扩展设置以反映所选桌面布局的外观和感觉",

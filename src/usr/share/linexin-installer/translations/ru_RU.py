@@ -302,6 +302,8 @@ translations = {
             "Cleaning out rootfs from LiveISO's config and applying post-install scripts": "Очистка rootfs от конфигурации LiveISO и применение скриптов после установки",
             "Installing bootloader": "Установка загрузчика",
             "Checking for other systems installed and installing proper bootloader": "Проверка других установленных систем и установка соответствующего загрузчика",
+            "Regenerating initramfs": "Пересоздание initramfs",
+            "Single initramfs regeneration after all package changes": "Однократное пересоздание initramfs после всех изменений пакетов",
             "Unmounting filesystems": "Размонтирование файловых систем",
             "Safely unmounting all filesystems": "Безопасное размонтирование всех файловых систем",
             "Changing GNOME extensions settings to mirror look and feel of the selected desktop layout": "Изменение настроек расширений GNOME для отражения внешнего вида выбранной компоновки рабочего стола",

@@ -51,6 +51,28 @@ detect_boot_mode() {
     fi
 }
 
+get_bootloader_choice() {
+    local choice="automatic"
+
+    if [ -n "$FORCE_BOOTLOADER" ]; then
+        choice="$FORCE_BOOTLOADER"
+    elif [ -f "/bootloader_choice" ]; then
+        choice=$(cat /bootloader_choice 2>/dev/null)
+    elif [ -f "/tmp/installer_config/bootloader_choice" ]; then
+        choice=$(cat /tmp/installer_config/bootloader_choice 2>/dev/null)
+    fi
+
+    choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]' | xargs)
+    case "$choice" in
+        automatic|systemd-boot|grub|refind)
+            echo "$choice"
+            ;;
+        *)
+            echo "automatic"
+            ;;
+    esac
+}
+
 detect_other_os() {
     print_msg "═══════════════════════════════════════════"
     print_msg "Starting OS Detection"
@@ -643,51 +665,97 @@ main() {
         set -x
         print_msg "DEBUG MODE ENABLED"
     fi
-    
-    OTHER_OS=$(detect_other_os)
-    
-    print_debug "Detection result: OTHER_OS='$OTHER_OS'"
-    
+
+    BOOTLOADER_CHOICE=$(get_bootloader_choice)
+    print_msg "Bootloader preference: $BOOTLOADER_CHOICE"
+
     if [ "$FORCE_REFIND" = "1" ] || [ "$FORCE_REFIND" = "true" ]; then
-        print_warning "FORCE_REFIND enabled - installing rEFInd"
-        OTHER_OS="true"
+        print_warning "FORCE_REFIND enabled - overriding choice to refind"
+        BOOTLOADER_CHOICE="refind"
+    fi
+    
+    OTHER_OS="false"
+    if [ "$BOOTLOADER_CHOICE" = "automatic" ]; then
+        OTHER_OS=$(detect_other_os)
+        print_debug "Detection result: OTHER_OS='$OTHER_OS'"
     fi
     
     print_msg ""
     print_msg "FINAL DECISION:"
     print_msg "═══════════════════════════════════════════"
     
-    if [ "$OTHER_OS" = "true" ]; then
-        print_msg ">>> INSTALLING rEFInd (multi-boot detected) <<<"
-        if [ "$BOOT_MODE" = "uefi" ]; then
-            if ! install_refind "$ESP_PATH"; then
-                print_error "rEFInd installation failed!"
-                exit 1
-            fi
-        else
-            print_msg ">>> INSTALLING GRUB (Legacy multi-boot) <<<"
+    case "$BOOTLOADER_CHOICE" in
+        grub)
+            print_msg ">>> INSTALLING GRUB (user-selected) <<<"
             if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
                 print_error "GRUB installation failed!"
                 exit 1
             fi
-        fi
-    else
-        print_msg ">>> INSTALLING systemd-boot (single OS) <<<"
-        print_warning "To force rEFInd: FORCE_REFIND=1 $0"
-        print_warning "To enable debug: DEBUG=1 $0 or $0 --debug"
-        if [ "$BOOT_MODE" = "uefi" ]; then
-            if ! install_systemd_boot "$ESP_PATH"; then
-                print_error "systemd-boot installation failed!"
-                exit 1
+            ;;
+        systemd-boot)
+            if [ "$BOOT_MODE" = "uefi" ]; then
+                print_msg ">>> INSTALLING systemd-boot (user-selected) <<<"
+                if ! install_systemd_boot "$ESP_PATH"; then
+                    print_error "systemd-boot installation failed!"
+                    exit 1
+                fi
+            else
+                print_warning "systemd-boot requires UEFI. Falling back to GRUB on Legacy BIOS."
+                if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                    print_error "GRUB installation failed!"
+                    exit 1
+                fi
             fi
-        else
-            print_msg ">>> INSTALLING GRUB (Legacy single OS) <<<"
-            if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
-                print_error "GRUB installation failed!"
-                exit 1
+            ;;
+        refind)
+            if [ "$BOOT_MODE" = "uefi" ]; then
+                print_msg ">>> INSTALLING rEFInd (user-selected) <<<"
+                if ! install_refind "$ESP_PATH"; then
+                    print_error "rEFInd installation failed!"
+                    exit 1
+                fi
+            else
+                print_warning "rEFInd requires UEFI. Falling back to GRUB on Legacy BIOS."
+                if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                    print_error "GRUB installation failed!"
+                    exit 1
+                fi
             fi
-        fi
-    fi
+            ;;
+        automatic|*)
+            if [ "$OTHER_OS" = "true" ]; then
+                print_msg ">>> INSTALLING rEFInd (multi-boot detected) <<<"
+                if [ "$BOOT_MODE" = "uefi" ]; then
+                    if ! install_refind "$ESP_PATH"; then
+                        print_error "rEFInd installation failed!"
+                        exit 1
+                    fi
+                else
+                    print_msg ">>> INSTALLING GRUB (Legacy multi-boot) <<<"
+                    if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                        print_error "GRUB installation failed!"
+                        exit 1
+                    fi
+                fi
+            else
+                print_msg ">>> INSTALLING systemd-boot (single OS) <<<"
+                print_warning "To force rEFInd: FORCE_REFIND=1 $0"
+                print_warning "To enable debug: DEBUG=1 $0 or $0 --debug"
+                if [ "$BOOT_MODE" = "uefi" ]; then
+                    if ! install_systemd_boot "$ESP_PATH"; then
+                        print_error "systemd-boot installation failed!"
+                        exit 1
+                    fi
+                else
+                    print_msg ">>> INSTALLING GRUB (Legacy single OS) <<<"
+                    if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                        print_error "GRUB installation failed!"
+                        exit 1
+                    fi
+                fi
+            fi
+            ;;
+    esac
     
     print_msg "═══════════════════════════════════════════"
     print_msg "BOOTLOADER INSTALLED SUCCESSFULLY!"
