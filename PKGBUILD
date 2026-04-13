@@ -1,8 +1,8 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-installer
-pkgver=1.5.1.r
-pkgrel=2
+pkgver=1.5.2.r
+pkgrel=1
 pkgdesc='Linexin Operating System Installer'
 url='https://github.com/Petexy'
 arch=('x86_64')

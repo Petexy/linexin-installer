@@ -186,6 +186,8 @@ dconf update 2>/dev/null || true
 
 # Initialize pacman keys (always needed)
 rm -rf /etc/pacman.d/gnupg 2>/dev/null || true
+rm -rf /etc/modprobe.d/nvidia-utils.conf 2>/dev/null || true
+rm -rf /etc/modules-load.d/nvidia-utils.conf 2>/dev/null || true
 pacman-key --init 2>/dev/null || true
 pacman-key --populate archlinux 2>/dev/null || true
 
