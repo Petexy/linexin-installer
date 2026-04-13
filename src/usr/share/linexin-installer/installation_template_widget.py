@@ -210,8 +210,24 @@ class InstallationTemplateWidget(Gtk.Box):
         self.view_stack.set_visible_child_name("waiting")
         
         try:
-            # Launch gparted asynchronously
-            process = Gio.Subprocess.new(['gnome-disks'], Gio.SubprocessFlags.NONE)
+            # Launch gnome-disks with the user-selected language
+            lang = get_localization_manager().current_language
+
+            # Ensure the locale is generated (required on Arch)
+            try:
+                locale_line = lang + ' UTF-8'
+                subprocess.run(
+                    ['sudo', 'sed', '-i', f's/^#\\s*{lang}/{lang}/', '/etc/locale.gen'],
+                    capture_output=True
+                )
+                subprocess.run(['sudo', 'locale-gen'], capture_output=True)
+            except Exception:
+                pass  # Best-effort; proceed even if generation fails
+
+            launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.NONE)
+            launcher.setenv('LANG', lang, True)
+            launcher.setenv('LANGUAGE', lang.split('.')[0], True)
+            process = launcher.spawnv(['gnome-disks'])
             process.wait_check_async(None, self._on_gparted_closed)
         except GLib.Error as e:
             # Fallback if launch fails
