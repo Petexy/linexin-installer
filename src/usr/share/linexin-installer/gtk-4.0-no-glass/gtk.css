@@ -1,0 +1,132 @@
+/* ===================================================================
+   Window chrome
+   =================================================================== */
+
+window.csd,
+window.csd > decoration,
+window.csd > decoration-overlay {
+    border-radius: 12px;
+}
+
+/* ===================================================================
+   Window-control buttons – solid colored circles (no icon)
+   =================================================================== */
+
+windowcontrols > button,
+headerbar button.titlebutton,
+.titlebar button.titlebutton {
+    min-width: 20px;
+    min-height: 20px;
+    max-width: 20px;
+    max-height: 20px;
+    padding: 0;
+    margin: 0 2px;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #808080 98%, transparent 100%);
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+windowcontrols > button > image,
+headerbar button.titlebutton > image,
+.titlebar button.titlebutton > image {
+    -gtk-icon-size: 0;
+    icon-size: 0;
+    color: transparent;
+    opacity: 0;
+    padding: 0;
+    margin: 0;
+}
+
+/* ── Close ───────────────────────────────────────────────────────── */
+
+windowcontrols > button.close,
+headerbar button.titlebutton.close,
+.titlebar button.titlebutton.close {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #E64D4D 98%, transparent 100%);
+}
+
+windowcontrols > button.close:hover,
+headerbar button.titlebutton.close:hover,
+.titlebar button.titlebutton.close:hover {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #FF5C5C 98%, transparent 100%);
+}
+
+windowcontrols > button.close:active,
+headerbar button.titlebutton.close:active,
+.titlebar button.titlebutton.close:active {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #A13636 98%, transparent 100%);
+}
+
+windowcontrols > button.close:backdrop,
+headerbar button.titlebutton.close:backdrop,
+.titlebar button.titlebutton.close:backdrop {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #E64D4D 98%, transparent 100%);
+}
+
+/* ── Maximize ────────────────────────────────────────────────────── */
+
+windowcontrols > button.maximize,
+headerbar button.titlebutton.maximize,
+.titlebar button.titlebutton.maximize {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #5973BF 98%, transparent 100%);
+}
+
+windowcontrols > button.maximize:hover,
+headerbar button.titlebutton.maximize:hover,
+.titlebar button.titlebutton.maximize:hover {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #6B8AE5 98%, transparent 100%);
+}
+
+windowcontrols > button.maximize:active,
+headerbar button.titlebutton.maximize:active,
+.titlebar button.titlebutton.maximize:active {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #3E5186 98%, transparent 100%);
+}
+
+windowcontrols > button.maximize:backdrop,
+headerbar button.titlebutton.maximize:backdrop,
+.titlebar button.titlebutton.maximize:backdrop {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #5973BF 98%, transparent 100%);
+}
+
+/* ── Minimize ────────────────────────────────────────────────────── */
+
+windowcontrols > button.minimize,
+headerbar button.titlebutton.minimize,
+.titlebar button.titlebutton.minimize {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #4DA64D 98%, transparent 100%);
+}
+
+windowcontrols > button.minimize:hover,
+headerbar button.titlebutton.minimize:hover,
+.titlebar button.titlebutton.minimize:hover {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #5CC75C 98%, transparent 100%);
+}
+
+windowcontrols > button.minimize:active,
+headerbar button.titlebutton.minimize:active,
+.titlebar button.titlebutton.minimize:active {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #367436 98%, transparent 100%);
+}
+
+windowcontrols > button.minimize:backdrop,
+headerbar button.titlebutton.minimize:backdrop,
+.titlebar button.titlebutton.minimize:backdrop {
+    background-color: transparent;
+    background-image: radial-gradient(circle 8px at center, #4DA64D 98%, transparent 100%);
+}
