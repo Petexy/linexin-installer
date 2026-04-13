@@ -1,0 +1,20 @@
+[project]
+name = "linexin-installer"
+version = "1.5.1"
+description = "Linexin Operating System Installer"
+license = "GPL-3.0-only"
+requires-python = ">=3.10"
+authors = [
+    {name = "Petexy"},
+]
+dependencies = [
+    "PyGObject",
+]
+
+[project.urls]
+Homepage = "https://github.com/Petexy/linexin-installer"
+Repository = "https://github.com/Petexy/linexin-installer"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

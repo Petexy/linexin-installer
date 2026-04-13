@@ -2,22 +2,26 @@
 
 pkgname=linexin-installer
 pkgver=1.5.1.r
-pkgrel=1
-_currentdate=$(date +"%Y-%m-%d%H-%M-%S")
+pkgrel=2
 pkgdesc='Linexin Operating System Installer'
 url='https://github.com/Petexy'
-arch=(x86_64)
+arch=('x86_64')
 license=('GPL-3.0')
 depends=(
-  python-gobject
-  gtk4
-  libadwaita
-  python
-)
-makedepends=(
+  'python-gobject'
+  'gtk4'
+  'libadwaita'
+  'python'
 )
 
 package() {
-   mkdir -p ${pkgdir}/usr/share/linexin-installer
-   cp -rf ${srcdir}/usr/share/ ${pkgdir}/usr/
+    cd "${srcdir}"
+
+    find usr -type f | while IFS= read -r _file; do
+        if [[ "${_file}" == usr/bin/* ]]; then
+            install -Dm755 "${_file}" "${pkgdir}/${_file}"
+        else
+            install -Dm644 "${_file}" "${pkgdir}/${_file}"
+        fi
+    done
 }
