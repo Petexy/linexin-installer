@@ -96,6 +96,7 @@ if [ "$has_nvidia" = true ] && [ "$has_amd" = false ]; then
         echo "Configuration: Pre-Turing NVIDIA without AMD"
         echo "Action: Remove nvidia-open and vulkan-radeon, use open-source nouveau driver"
         remove_if_installed "nvidia-open"
+        remove_if_installed "nvidia-utils"
         remove_if_installed "vulkan-radeon"
     fi
     
@@ -105,6 +106,7 @@ elif [ "$has_nvidia" = true ] && [ "$has_amd" = true ]; then
         echo "Configuration: Pre-Turing NVIDIA with AMD"
         echo "Action: Remove nvidia-open, use open-source nouveau driver"
         remove_if_installed "nvidia-open"
+        remove_if_installed "nvidia-utils"
     else
         echo "Configuration: NVIDIA Turing or newer with AMD"
         echo "Action: Keep both drivers as configured"
@@ -115,6 +117,7 @@ elif [ "$has_nvidia" = false ] && [ "$has_amd" = true ]; then
     echo "Configuration: AMD without NVIDIA"
     echo "Action: Remove nvidia-open"
     remove_if_installed "nvidia-open"
+    remove_if_installed "nvidia-utils"
     
 else
     # No dedicated GPU detected
