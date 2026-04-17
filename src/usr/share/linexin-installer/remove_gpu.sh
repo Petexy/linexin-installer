@@ -10,7 +10,7 @@ remove_if_installed() {
     local pkg="$1"
     if is_installed "$pkg"; then
         echo "Removing $pkg..."
-        pacman -Rs --noconfirm "$pkg"
+        pacman -Rns --noconfirm "$pkg"
     fi
 }
 
