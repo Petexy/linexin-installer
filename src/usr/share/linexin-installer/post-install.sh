@@ -184,12 +184,19 @@ dconf update 2>/dev/null || true
 #amixer set 'Master' 100% 2>/dev/null || true
 #alsactl store 2>/dev/null || true
 
-# Initialize pacman keys (always needed)
-rm -rf /etc/pacman.d/gnupg 2>/dev/null || true
+# Fix pacman local database - remove unknown %INSTALLED_DB% entries
+# These entries are written by newer pacman during ISO build but not recognized at runtime
+print_msg "Cleaning pacman local database of unknown keys..."
+find /var/lib/pacman/local -name 'desc' -exec sed -i '/%INSTALLED_DB%/,/^$/d' {} + 2>/dev/null || true
+
+# Initialize pacman keys
+# Don't wipe /etc/pacman.d/gnupg - the live system's keyring (already
+# populated by pacman-init.service) was copied by rsync and is valid.
 rm -rf /etc/modprobe.d/nvidia-utils.conf 2>/dev/null || true
 rm -rf /etc/modules-load.d/nvidia-utils.conf 2>/dev/null || true
 pacman-key --init 2>/dev/null || true
 pacman-key --populate archlinux 2>/dev/null || true
+pacman-key --populate linexin 2>/dev/null || true
 
 # Remove specific packages (works offline since they're already installed)
 pacman -R totem --noconfirm 2>/dev/null || true

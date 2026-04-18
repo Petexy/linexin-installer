@@ -10,8 +10,18 @@ remove_if_installed() {
     local pkg="$1"
     if is_installed "$pkg"; then
         echo "Removing $pkg..."
-        pacman -Rns --noconfirm "$pkg"
+        pacman -Rdd --noconfirm "$pkg"
     fi
+}
+
+# Function to remove all NVIDIA packages (vulkan-driver is already satisfied by
+# vulkan-intel / vulkan-radeon / vulkan-nouveau shipped on the ISO)
+remove_nvidia_stack() {
+    echo "Removing NVIDIA driver stack..."
+    # Remove lib32-nvidia-utils first (depends on exact nvidia-utils version)
+    remove_if_installed "lib32-nvidia-utils"
+    remove_if_installed "nvidia-open"
+    remove_if_installed "nvidia-utils"
 }
 
 # Function to check if NVIDIA GPU is Turing or newer
@@ -90,39 +100,47 @@ if [ "$has_nvidia" = true ] && [ "$has_amd" = false ]; then
     # Only NVIDIA, no AMD
     if [ "$nvidia_is_turing_or_newer" = true ]; then
         echo "Configuration: NVIDIA Turing or newer without AMD"
-        echo "Action: Remove vulkan-radeon, keep nvidia-open"
+        echo "Action: Remove vulkan-radeon/vulkan-intel/vulkan-nouveau, keep nvidia-open"
         remove_if_installed "vulkan-radeon"
+        remove_if_installed "vulkan-intel"
+        remove_if_installed "vulkan-nouveau"
     else
         echo "Configuration: Pre-Turing NVIDIA without AMD"
-        echo "Action: Remove nvidia-open and vulkan-radeon, use open-source nouveau driver"
-        remove_if_installed "nvidia-open"
-        remove_if_installed "nvidia-utils"
+        echo "Action: Remove NVIDIA stack and vulkan-radeon, use nouveau"
         remove_if_installed "vulkan-radeon"
+        remove_if_installed "vulkan-intel"
+        remove_nvidia_stack
     fi
     
 elif [ "$has_nvidia" = true ] && [ "$has_amd" = true ]; then
     # Both NVIDIA and AMD present
     if [ "$nvidia_is_turing_or_newer" = false ]; then
         echo "Configuration: Pre-Turing NVIDIA with AMD"
-        echo "Action: Remove nvidia-open, use open-source nouveau driver"
-        remove_if_installed "nvidia-open"
-        remove_if_installed "nvidia-utils"
+        echo "Action: Remove NVIDIA stack, keep vulkan-radeon"
+        remove_if_installed "vulkan-intel"
+        remove_nvidia_stack
     else
         echo "Configuration: NVIDIA Turing or newer with AMD"
-        echo "Action: Keep both drivers as configured"
+        echo "Action: Keep nvidia and vulkan-radeon, remove unused vulkan drivers"
+        remove_if_installed "vulkan-intel"
+        remove_if_installed "vulkan-nouveau"
     fi
     
 elif [ "$has_nvidia" = false ] && [ "$has_amd" = true ]; then
     # Only AMD, no NVIDIA
     echo "Configuration: AMD without NVIDIA"
-    echo "Action: Remove nvidia-open"
-    remove_if_installed "nvidia-open"
-    remove_if_installed "nvidia-utils"
+    echo "Action: Remove NVIDIA stack, keep vulkan-radeon"
+    remove_if_installed "vulkan-intel"
+    remove_if_installed "vulkan-nouveau"
+    remove_nvidia_stack
     
 else
-    # No dedicated GPU detected
-    echo "Warning: No dedicated GPU detected"
-    echo "This might be an integrated GPU only system"
+    # No dedicated GPU detected (integrated GPU only — likely Intel iGPU)
+    echo "Configuration: Integrated GPU only (no dedicated GPU detected)"
+    echo "Action: Remove NVIDIA stack and unused vulkan drivers"
+    remove_if_installed "vulkan-radeon"
+    remove_if_installed "vulkan-nouveau"
+    remove_nvidia_stack
 fi
 
 echo ""
