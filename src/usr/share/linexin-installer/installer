@@ -23,6 +23,20 @@ import threading
 import gettext
 import locale
 
+
+_orig_popen_init = subprocess.Popen.__init__
+
+def _popen_init_safe_decode(self, *args, **kwargs):
+    if (
+        kwargs.get("text")
+        or kwargs.get("universal_newlines")
+        or kwargs.get("encoding") is not None
+    ) and kwargs.get("errors") is None:
+        kwargs["errors"] = "replace"
+    _orig_popen_init(self, *args, **kwargs)
+
+subprocess.Popen.__init__ = _popen_init_safe_decode
+
 from welcome_widget import WelcomeWidget
 from installation_template_widget import InstallationTemplateWidget
 from disk_utility_widget import DiskUtilityWidget

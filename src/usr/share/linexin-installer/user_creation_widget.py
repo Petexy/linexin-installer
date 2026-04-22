@@ -7,6 +7,7 @@ import hashlib
 import random
 import string
 import re
+import shlex
 import subprocess
 
 gi.require_version("Gtk", "4.0")
@@ -533,65 +534,98 @@ class UserCreationWidget(Gtk.Box):
     
     def hash_password(self, password):
         """
-        Hash password using SHA512 (standard for modern Linux systems).
-        Uses openssl as a fallback if crypt module is not available.
+        Hash a password as SHA-512 crypt (shadow format ``$6$salt$...``) so
+        the result can be fed directly to ``usermod -p``.
+
+        Passwords are never placed on the command line (argv is world-readable
+        via /proc/*/cmdline); subprocess-based hashers receive the password
+        on stdin instead.
         """
         salt = self.generate_salt()
-        
-        # Try using openssl command (standard on most Linux systems)
+
+        # 1) Python's crypt module — simplest, no subprocess.
+        #    (Removed from stdlib in Python 3.13; tolerated here.)
         try:
-            result = subprocess.run(
-                ['openssl', 'passwd', '-6', '-salt', salt, password],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            return result.stdout.strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
-        
-        # Try using Python's crypt module if available
-        try:
-            import crypt
-            return crypt.crypt(password, f'$6${salt}$')
+            import crypt  # type: ignore[import-not-found]
+            hashed = crypt.crypt(password, f'$6${salt}$')
+            if hashed and hashed.startswith('$6$'):
+                return hashed
         except ImportError:
             pass
-        
-        # Fallback: use mkpasswd if available
+        except Exception as e:
+            print(f"crypt.crypt failed, falling back: {e}")
+
+        # 2) openssl with password on stdin (never on argv).
         try:
             result = subprocess.run(
-                ['mkpasswd', '-m', 'sha-512', '-S', salt, password],
+                ['openssl', 'passwd', '-6', '-salt', salt, '-stdin'],
+                input=password,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=15,
             )
-            return result.stdout.strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
+            out = result.stdout.strip()
+            if out.startswith('$6$'):
+                return out
+        except (subprocess.CalledProcessError, FileNotFoundError,
+                subprocess.TimeoutExpired):
             pass
-        
-        # Last resort: use a simple SHA512 hash (less secure but better than plain text)
-        print("Warning: Using fallback password hashing (less secure)")
-        salted = salt + password
-        hash_obj = hashlib.sha512(salted.encode())
-        return f"$6${salt}${hash_obj.hexdigest()}"
+
+        # 3) mkpasswd with password on stdin.
+        try:
+            result = subprocess.run(
+                ['mkpasswd', '-m', 'sha-512', '-S', salt, '--stdin'],
+                input=password,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=15,
+            )
+            out = result.stdout.strip()
+            if out.startswith('$6$'):
+                return out
+        except (subprocess.CalledProcessError, FileNotFoundError,
+                subprocess.TimeoutExpired):
+            pass
+
+        # No legitimate path produced a valid shadow hash. Refuse to continue
+        # rather than write a bogus /etc/shadow entry that would silently
+        # lock the user out of their new system.
+        raise RuntimeError(
+            "Unable to produce a valid SHA-512 password hash. "
+            "None of crypt/openssl/mkpasswd is available on this system."
+        )
     
     def on_continue_clicked(self, button):
         """Handle the continue button click and generate configuration files."""
         if not self.validate_fields():
             return
-        
-        # Collect user data and hash passwords
-        user_data = {
-            'username': self.username_entry.get_text(),
-            'fullname': self.fullname_entry.get_text(),
-            'password_hash': self.hash_password(self.password_entry.get_text()),
-            'hostname': self.hostname_entry.get_text(),
-            'root_enabled': self.root_enabled
-        }
-        
-        if self.root_enabled:
-            user_data['root_password_hash'] = self.hash_password(self.root_password_entry.get_text())
-        
+
+        # Collect user data and hash passwords. hash_password may raise if no
+        # hashing backend is available; surface that as a dialog rather than
+        # letting it propagate out of the signal handler.
+        try:
+            user_data = {
+                'username': self.username_entry.get_text(),
+                'fullname': self.fullname_entry.get_text(),
+                'password_hash': self.hash_password(self.password_entry.get_text()),
+                'hostname': self.hostname_entry.get_text(),
+                'root_enabled': self.root_enabled
+            }
+
+            if self.root_enabled:
+                user_data['root_password_hash'] = self.hash_password(self.root_password_entry.get_text())
+        except Exception as e:
+            dialog = Adw.MessageDialog(
+                transient_for=self.get_root(),
+                heading="Password Hashing Failed",
+                body=f"Could not hash the password securely: {e}",
+            )
+            dialog.add_response("ok", "OK")
+            dialog.present()
+            return
+
         # Create configuration directory in the specified output location
         config_dir = os.path.join(self.config_output_dir, 'installer_config')
         os.makedirs(config_dir, exist_ok=True)
@@ -680,7 +714,17 @@ class UserCreationWidget(Gtk.Box):
         # Password hashes are already generated, no need to escape
         user_password_hash = user_data['password_hash']
         root_password_hash = user_data.get('root_password_hash', '') if user_data['root_enabled'] else ''
-        
+
+        # Shell-quote every user-provided string that gets embedded in the
+        # generated bash script. Without this, a full name containing an
+        # apostrophe (e.g. "O'Brien") would break the single-quoted assignment
+        # and abort user creation. shlex.quote handles any character safely.
+        username_q = shlex.quote(user_data['username'])
+        fullname_q = shlex.quote(user_data.get('fullname', '') or '')
+        hostname_q = shlex.quote(user_data['hostname'])
+        user_password_hash_q = shlex.quote(user_password_hash)
+        root_password_hash_q = shlex.quote(root_password_hash)
+
         script_content = f"""#!/bin/bash
 # System configuration script generated by Linexin Installer
 # This script should be run in the chrooted environment
@@ -692,13 +736,13 @@ echo "========================================="
 echo "Starting system configuration..."
 echo "========================================="
 
-# Configuration variables
-USERNAME='{user_data['username']}'
-FULLNAME='{user_data['fullname']}'
-USER_PASSWORD_HASH='{user_password_hash}'
-HOSTNAME='{user_data['hostname']}'
+# Configuration variables (all values shell-quoted by the installer)
+USERNAME={username_q}
+FULLNAME={fullname_q}
+USER_PASSWORD_HASH={user_password_hash_q}
+HOSTNAME={hostname_q}
 ROOT_ENABLED={'true' if user_data['root_enabled'] else 'false'}
-ROOT_PASSWORD_HASH='{root_password_hash}'
+ROOT_PASSWORD_HASH={root_password_hash_q}
 
 # Function to report errors
 error_exit() {{

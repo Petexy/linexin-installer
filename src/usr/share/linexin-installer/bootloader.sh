@@ -51,6 +51,52 @@ detect_boot_mode() {
     fi
 }
 
+# Return the partition-table type ("gpt", "dos"/"mbr", "loop", ...) of the
+# disk that contains the ESP mount. Prints nothing on failure.
+detect_esp_pttype() {
+    local esp_path=$1
+    [ -z "$esp_path" ] && return 1
+
+    local esp_device
+    esp_device=$(findmnt -no SOURCE "$esp_path" 2>/dev/null)
+    [ -z "$esp_device" ] && return 1
+
+    # Resolve /dev/disk/by-* symlinks.
+    if [ -L "$esp_device" ]; then
+        esp_device=$(readlink -f "$esp_device")
+    fi
+
+    local parent
+    parent=$(lsblk -no PKNAME "$esp_device" 2>/dev/null | head -n1)
+    if [ -z "$parent" ]; then
+        return 1
+    fi
+
+    lsblk -no PTTYPE "/dev/$parent" 2>/dev/null | head -n1
+}
+
+# systemd-boot and rEFInd are only reliably bootable by UEFI firmware when
+# the ESP lives on a GPT-labelled disk. Many real-world UEFI firmwares
+# (notably HP, Lenovo consumer) silently refuse to boot from an ESP on an
+# MBR disk, producing a "bootloader installed successfully" + unbootable
+# system. GRUB handles both layouts, so downgrade to it instead.
+requires_gpt_esp() {
+    local esp_path=$1
+    local pttype
+    pttype=$(detect_esp_pttype "$esp_path")
+    if [ -z "$pttype" ]; then
+        # Unknown layout: let the caller proceed; the installer will surface
+        # any concrete failure from the bootloader's own install step.
+        return 0
+    fi
+    if [ "$pttype" = "gpt" ]; then
+        return 0
+    fi
+    print_warning "ESP at $esp_path is on a $pttype-labelled disk, not GPT."
+    print_warning "UEFI firmwares routinely refuse to boot a non-GPT ESP."
+    return 1
+}
+
 get_bootloader_choice() {
     local choice="automatic"
 
@@ -302,12 +348,17 @@ EOF
         local esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
         
         if [ -n "$esp_part_num" ] && [ -n "$esp_disk" ]; then
-            efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "Linexin" -l "\\EFI\\systemd\\systemd-bootx64.efi" 2>/dev/null || true
-            
-            local linux_boot=$(efibootmgr | grep "Linexin" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
+            # Redirect stdout as well as stderr: efibootmgr dumps the full
+            # NVRAM boot-entry table (including raw EFI device-path bytes
+            # from USB/removable vendor entries that are not valid UTF-8).
+            # We never use that output here; keeping it off the pipe avoids
+            # decode errors in the outer installer log reader.
+            efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "Linexin" -l "\\EFI\\systemd\\systemd-bootx64.efi" >/dev/null 2>&1 || true
+
+            local linux_boot=$(efibootmgr 2>/dev/null | grep "Linexin" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
             if [ -n "$linux_boot" ]; then
-                local other_boots=$(efibootmgr | grep "BootOrder:" | cut -d: -f2 | tr -d ' ' | sed "s/$linux_boot,\?//g" | sed 's/,$//')
-                efibootmgr -o "$linux_boot${other_boots:+,$other_boots}" 2>/dev/null || true
+                local other_boots=$(efibootmgr 2>/dev/null | grep "BootOrder:" | cut -d: -f2 | tr -d ' ' | sed "s/$linux_boot,\?//g" | sed 's/,$//')
+                efibootmgr -o "$linux_boot${other_boots:+,$other_boots}" >/dev/null 2>&1 || true
             fi
         fi
     fi
@@ -499,7 +550,7 @@ EOF
 include themes/refind-theme-regular/theme.conf
 
 timeout 5
-hideui singleuser,hints,arrows,badges,hidden_tags
+hideui singleuser,hints,arrows,badges
 big_icon_size 128
 small_icon_size 48
 default_selection "vmlinuz-linux"
@@ -694,10 +745,18 @@ main() {
             ;;
         systemd-boot)
             if [ "$BOOT_MODE" = "uefi" ]; then
-                print_msg ">>> INSTALLING systemd-boot (user-selected) <<<"
-                if ! install_systemd_boot "$ESP_PATH"; then
-                    print_error "systemd-boot installation failed!"
-                    exit 1
+                if ! requires_gpt_esp "$ESP_PATH"; then
+                    print_warning "Falling back to GRUB for safety; it boots fine on both GPT and MBR."
+                    if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                        print_error "GRUB installation failed!"
+                        exit 1
+                    fi
+                else
+                    print_msg ">>> INSTALLING systemd-boot (user-selected) <<<"
+                    if ! install_systemd_boot "$ESP_PATH"; then
+                        print_error "systemd-boot installation failed!"
+                        exit 1
+                    fi
                 fi
             else
                 print_warning "systemd-boot requires UEFI. Falling back to GRUB on Legacy BIOS."
@@ -709,10 +768,18 @@ main() {
             ;;
         refind)
             if [ "$BOOT_MODE" = "uefi" ]; then
-                print_msg ">>> INSTALLING rEFInd (user-selected) <<<"
-                if ! install_refind "$ESP_PATH"; then
-                    print_error "rEFInd installation failed!"
-                    exit 1
+                if ! requires_gpt_esp "$ESP_PATH"; then
+                    print_warning "Falling back to GRUB for safety; it boots fine on both GPT and MBR."
+                    if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                        print_error "GRUB installation failed!"
+                        exit 1
+                    fi
+                else
+                    print_msg ">>> INSTALLING rEFInd (user-selected) <<<"
+                    if ! install_refind "$ESP_PATH"; then
+                        print_error "rEFInd installation failed!"
+                        exit 1
+                    fi
                 fi
             else
                 print_warning "rEFInd requires UEFI. Falling back to GRUB on Legacy BIOS."
@@ -726,9 +793,17 @@ main() {
             if [ "$OTHER_OS" = "true" ]; then
                 print_msg ">>> INSTALLING rEFInd (multi-boot detected) <<<"
                 if [ "$BOOT_MODE" = "uefi" ]; then
-                    if ! install_refind "$ESP_PATH"; then
-                        print_error "rEFInd installation failed!"
-                        exit 1
+                    if ! requires_gpt_esp "$ESP_PATH"; then
+                        print_warning "Falling back to GRUB for safety; it boots fine on both GPT and MBR."
+                        if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                            print_error "GRUB installation failed!"
+                            exit 1
+                        fi
+                    else
+                        if ! install_refind "$ESP_PATH"; then
+                            print_error "rEFInd installation failed!"
+                            exit 1
+                        fi
                     fi
                 else
                     print_msg ">>> INSTALLING GRUB (Legacy multi-boot) <<<"
@@ -742,9 +817,17 @@ main() {
                 print_warning "To force rEFInd: FORCE_REFIND=1 $0"
                 print_warning "To enable debug: DEBUG=1 $0 or $0 --debug"
                 if [ "$BOOT_MODE" = "uefi" ]; then
-                    if ! install_systemd_boot "$ESP_PATH"; then
-                        print_error "systemd-boot installation failed!"
-                        exit 1
+                    if ! requires_gpt_esp "$ESP_PATH"; then
+                        print_warning "Falling back to GRUB for safety; it boots fine on both GPT and MBR."
+                        if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                            print_error "GRUB installation failed!"
+                            exit 1
+                        fi
+                    else
+                        if ! install_systemd_boot "$ESP_PATH"; then
+                            print_error "systemd-boot installation failed!"
+                            exit 1
+                        fi
                     fi
                 else
                     print_msg ">>> INSTALLING GRUB (Legacy single OS) <<<"

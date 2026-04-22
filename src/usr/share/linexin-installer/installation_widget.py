@@ -1155,7 +1155,11 @@ class InstallationWidget(Gtk.Box):
 
         steps.append(InstallationStep(
             label="Unmounting filesystems",
-            command=["sudo", "bash", "-c", "umount -R /tmp/linexin_installer/root/boot && umount /tmp/linexin_installer/root && umount /tmp/linexin_installer/rootfs"],
+
+            command=["sudo", "bash", "-c",
+                    "umount -R /tmp/linexin_installer/root 2>/dev/null; "
+                    "umount -R /tmp/linexin_installer/rootfs 2>/dev/null; "
+                    "true"],
             description="Safely unmounting all filesystems",
             weight=0.5,
             critical=False
@@ -1192,6 +1196,10 @@ class InstallationWidget(Gtk.Box):
     def _run_installation(self):
         """Run the installation process in a separate thread."""
         total_weight = sum(step.weight for step in self.installation_steps)
+        # Guard against an empty or zero-weight step list so progress
+        # calculation below never divides by zero.
+        if total_weight <= 0:
+            total_weight = 1.0
         completed_weight = 0.0
         
         for i, step in enumerate(self.installation_steps):
@@ -1208,40 +1216,49 @@ class InstallationWidget(Gtk.Box):
             self.output_queue.put((f"$ {' '.join(step.command)}", "command"))
             
             try:
-                # Execute command
+                # Execute command.
+                # encoding+errors="replace" guards against non-UTF-8 bytes in
+                # tool output (e.g. efibootmgr EFI device-path data) that
+                # would otherwise raise UnicodeDecodeError and abort the step.
                 process = subprocess.Popen(
                     step.command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
-                    universal_newlines=True
                 )
-                
-                # Read output in real-time
+
+                # Drain stderr on a dedicated thread.
+                def _drain_stderr(proc=process):
+                    try:
+                        for line in proc.stderr:
+                            self.output_queue.put((line.rstrip(), "error"))
+                    except Exception:
+                        pass
+
+                stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+                stderr_thread.start()
+
+                # Read stdout in real-time
                 while True:
                     if self.should_cancel:
                         process.terminate()
                         GLib.idle_add(self._on_installation_cancelled)
                         return
-                    
+
                     output = process.stdout.readline()
                     if output:
                         self.output_queue.put((output.rstrip(), None))
-                        
+                        continue
 
-                    
-                    # Check if process has finished
+                    # readline() returns "" only at EOF.
                     if process.poll() is not None:
                         break
-                
-                # Get any remaining output
-                stdout, stderr = process.communicate()
-                if stdout:
-                    self.output_queue.put((stdout.rstrip(), None))
-                if stderr:
-                    self.output_queue.put((stderr.rstrip(), "error"))
-                
+
+                process.wait()
+                stderr_thread.join(timeout=5)
+
                 # Check return code
                 if process.returncode != 0:
                     if step.critical:
@@ -1275,7 +1292,6 @@ class InstallationWidget(Gtk.Box):
     
     def _update_step_info(self, step: InstallationStep, index: int):
         """Update the UI with current step information."""
-        localization_manager = get_localization_manager()
         localization_manager = get_localization_manager()
         self.operation_label.set_markup(f'<span size="large" weight="bold">{localization_manager.get_text(step.label)}</span>')
         self.step_description.set_text(localization_manager.get_text(step.description))
@@ -1356,14 +1372,6 @@ class InstallationWidget(Gtk.Box):
                  
         # Scroll ONLY if we were already at the bottom
         if should_scroll:
-            # We must yield processing to allow the view to calculate new height?
-            # Actually, insert() updates the buffer immediately, but upper limit might update async layout
-            # However, scrolling to the NEW end_iter usually works
-            
-            # Using an idle scroll ensures the generic layout matches
-            # self.terminal_view.scroll_to_iter(self.terminal_buffer.get_end_iter(), 0.0, False, 0.0, 0.0)
-            
-            # Better approach for reliable bottom scroll with TextView:
             GLib.idle_add(self._scroll_to_bottom)
         
         return True 
@@ -1427,6 +1435,11 @@ class InstallationWidget(Gtk.Box):
     
     def _on_continue_clicked(self, button):
         """Handle continue button click."""
+        if self.state in (InstallationState.ERROR, InstallationState.CANCELLED):
+            root = self.get_root()
+            if root is not None:
+                root.close()
+            return
         if self.on_complete_callback:
             self.on_complete_callback()
     
@@ -1474,12 +1487,13 @@ class InstallationWidget(Gtk.Box):
         self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installation Failed")}</span>')
         self.operation_label.set_markup(f'<b>{localization_manager.get_text("An error occurred during installation")}</b>')
         self.step_description.set_text(error_msg)
-        
-        # Update buttons
+
+        self._cleanup_mounts_async()
+
         self.btn_cancel.set_visible(False)
-        self.btn_continue.set_visible(False)
-        self.btn_continue.set_sensitive(False)
-        self.btn_continue.set_label(localization_manager.get_text("Try Again"))
+        self.btn_continue.set_visible(True)
+        self.btn_continue.set_sensitive(True)
+        self.btn_continue.set_label(localization_manager.get_text("Close"))
         
         # Show error dialog
         dialog = Adw.MessageDialog(
@@ -1507,19 +1521,60 @@ class InstallationWidget(Gtk.Box):
         self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installation Cancelled")}</span>')
         self.operation_label.set_markup(f'<b>{localization_manager.get_text("Installation was cancelled by user")}</b>')
         self.step_description.set_text(localization_manager.get_text("The installation process was interrupted."))
-        
-        # Update buttons
+
+
+        self._cleanup_mounts_async()
+
+        # Keep a Close button visible so the user has a clear way out.
         self.btn_cancel.set_visible(False)
-        self.btn_continue.set_visible(False)
-        self.btn_continue.set_sensitive(False)
-        self.btn_continue.set_label(localization_manager.get_text("Restart"))
-        
+        self.btn_continue.set_visible(True)
+        self.btn_continue.set_sensitive(True)
+        self.btn_continue.set_label(localization_manager.get_text("Close"))
+
         self._append_to_terminal(f"\n{localization_manager.get_text('Installation cancelled by user.')}", "info")
-        
+
         self.spinner.stop()
         self.status_icon.set_from_icon_name("process-stop-symbolic")
-        
+
         return False
+
+    def _cleanup_mounts_async(self):
+        """Tear down installer mounts on a background thread.
+
+        Called from the main thread after an aborted or failed install. We
+        run the umounts in a worker so the UI remains responsive if a
+        subprocess takes a few seconds (e.g. a busy mount requiring the
+        lazy-unmount fallback).
+        """
+        def _run():
+            mount_points = (
+                "/tmp/linexin_installer/root",
+                "/tmp/linexin_installer/rootfs",
+            )
+            for mp in mount_points:
+                if not os.path.exists(mp):
+                    continue
+                try:
+                    result = subprocess.run(
+                        ["sudo", "umount", "-R", mp],
+                        capture_output=True,
+                        timeout=15,
+                    )
+                    if result.returncode != 0:
+                        # Busy mount (e.g. a lingering arch-chroot); fall
+                        # back to a lazy unmount so the kernel drops the
+                        # mount once no process holds it anymore.
+                        subprocess.run(
+                            ["sudo", "umount", "-l", "-R", mp],
+                            capture_output=True,
+                            timeout=5,
+                        )
+                except Exception as e:
+                    # Never let cleanup raise into the user's face; the
+                    # install is already in a terminal state.
+                    print(f"Mount cleanup warning for {mp}: {e}")
+
+        threading.Thread(target=_run, daemon=True).start()
     
     def get_installation_log(self) -> List[str]:
         """Get the complete installation log."""
