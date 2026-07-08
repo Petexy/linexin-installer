@@ -1,0 +1,210 @@
+#!/bin/bash
+#
+# linexin-snapshot -- automatic Timeshift snapshots + bootable recovery entries.
+#
+# Snapshots are created with Timeshift (so they appear in, and can be restored
+# from, the Timeshift GUI). Because systemd-boot cannot read a kernel from
+# Btrfs, we additionally copy the CURRENT kernel/initramfs onto the ESP and
+# write a systemd-boot "recovery" entry per snapshot that boots the Timeshift
+# snapshot subvolume with that matching kernel. Timeshift snapshots are
+# read-only, so recovery entries boot read-only with a volatile RAM overlay
+# (systemd.volatile=overlay): enough to get in and run `timeshift --restore`.
+#
+# Retention: keeps the newest MAX_SNAPSHOTS snapshots that WE created (tracked
+# by the per-snapshot kernel folders on the ESP), pruning the Timeshift snapshot
+# and boot artifacts together. Snapshots the user makes by hand in the Timeshift
+# GUI are left alone.
+#
+# Usage: linexin-snapshot create [comment]
+
+set -u
+
+MAX_SNAPSHOTS=5
+KERNEL_DIR_BASE="/boot/linexin-snapshots"
+LOADER_ENTRIES="/boot/loader/entries"
+TEMPLATE_ENTRY="$LOADER_ENTRIES/linexin.conf"   # the live systemd-boot entry
+ENTRY_PREFIX="linexin-snap-"
+TS_SNAP_REL="timeshift-btrfs/snapshots"         # path under the btrfs top level
+
+log()  { echo "[linexin-snapshot] $*"; }
+warn() { echo "[linexin-snapshot] WARNING: $*" >&2; }
+
+cmd="${1:-}"
+comment="${2:-snapshot}"
+
+case "$cmd" in
+    create|configure) ;;
+    *) echo "Usage: $0 {create [comment]|configure}" >&2; exit 2 ;;
+esac
+
+# --- Guards -----------------------------------------------------------------
+if [ "$(findmnt -no FSTYPE / 2>/dev/null)" != "btrfs" ]; then
+    log "Root filesystem is not btrfs; nothing to do."
+    exit 0
+fi
+if [ "$(findmnt -no FSROOT / 2>/dev/null)" != "/@" ]; then
+    # e.g. running inside a booted snapshot -- never snapshot that.
+    log "Root subvolume is not '@'; skipping."
+    exit 0
+fi
+if ! command -v timeshift >/dev/null 2>&1; then
+    warn "timeshift is not installed; skipping snapshot."
+    exit 0
+fi
+if ! command -v btrfs >/dev/null 2>&1; then
+    warn "btrfs-progs is not installed; skipping snapshot."
+    exit 0
+fi
+
+# --- Ensure Timeshift is configured for Btrfs on this root ------------------
+# Written once (installer or first run) so `timeshift --create` is non-interactive.
+ensure_timeshift_config() {
+    local cfg="/etc/timeshift/timeshift.json"
+    [ -f "$cfg" ] && return 0
+    local uuid
+    uuid=$(findmnt -no UUID / 2>/dev/null)
+    [ -z "$uuid" ] && { warn "cannot determine root UUID for Timeshift config"; return 1; }
+    mkdir -p /etc/timeshift
+    cat > "$cfg" <<EOF
+{
+  "backup_device_uuid" : "$uuid",
+  "parent_device_uuid" : "",
+  "do_first_run" : "false",
+  "btrfs_mode" : "true",
+  "include_btrfs_home_for_backup" : "false",
+  "include_btrfs_home_for_restore" : "false",
+  "stop_cron_emails" : "true",
+  "schedule_monthly" : "false",
+  "schedule_weekly" : "false",
+  "schedule_daily" : "false",
+  "schedule_hourly" : "false",
+  "schedule_boot" : "false",
+  "count_monthly" : "2",
+  "count_weekly" : "3",
+  "count_daily" : "5",
+  "count_hourly" : "6",
+  "count_boot" : "5",
+  "date_format" : "%Y-%m-%d %H:%M:%S",
+  "exclude" : [],
+  "exclude-apps" : []
+}
+EOF
+    log "Wrote default Timeshift Btrfs config ($cfg)"
+}
+ensure_timeshift_config
+
+# "configure" just sets Timeshift up (used at install time); no snapshot.
+if [ "$cmd" = "configure" ]; then
+    log "Timeshift configured."
+    exit 0
+fi
+
+# --- 1) Create the Timeshift snapshot --------------------------------------
+if ! timeshift --create --comments "$comment" --scripted; then
+    warn "timeshift --create failed."
+    exit 1
+fi
+
+# --- 2) Locate the snapshot on the btrfs top level -------------------------
+ROOT_UUID=$(findmnt -no UUID / 2>/dev/null)
+ROOT_DEV=$(blkid -U "$ROOT_UUID" 2>/dev/null)
+if [ -z "$ROOT_DEV" ] || [ ! -b "$ROOT_DEV" ]; then
+    warn "Could not resolve the Btrfs device; snapshot created but no boot entry."
+    exit 0
+fi
+
+TOP=$(mktemp -d /tmp/linexin-snap.XXXXXX)
+cleanup() {
+    if mountpoint -q "$TOP"; then umount "$TOP" 2>/dev/null; fi
+    rmdir "$TOP" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+if ! mount -o subvolid=5,noatime "$ROOT_DEV" "$TOP"; then
+    warn "Could not mount the Btrfs top level; snapshot created but no boot entry."
+    exit 0
+fi
+
+SNAPROOT="$TOP/$TS_SNAP_REL"
+# Newest Timeshift snapshot directory (names are timestamps, so sort works).
+NAME=$(find "$SNAPROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+        | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | sort | tail -n1)
+
+if [ -z "$NAME" ] || [ ! -d "$SNAPROOT/$NAME/@" ]; then
+    warn "Could not find the new Timeshift snapshot subvolume; no boot entry created."
+    exit 0
+fi
+log "New snapshot: $NAME ($comment)"
+
+# --- 3) Copy the matching kernel and write a recovery boot entry -----------
+if [ -f "$TEMPLATE_ENTRY" ]; then
+    KDIR="$KERNEL_DIR_BASE/$NAME"
+    mkdir -p "$KDIR"
+
+    copy_ok=1
+    while read -r key val || [ -n "$key" ]; do
+        case "$key" in
+            linux|initrd)
+                src="/boot/${val#/}"
+                if [ -f "$src" ]; then
+                    cp -f "$src" "$KDIR/$(basename "$src")" || { warn "copy $src failed"; copy_ok=0; }
+                else
+                    warn "entry references missing file $src"
+                fi
+                ;;
+        esac
+    done < "$TEMPLATE_ENTRY"
+
+    if [ "$copy_ok" -eq 1 ]; then
+        ENTRY="$LOADER_ENTRIES/${ENTRY_PREFIX}${NAME}.conf"
+        subvol="$TS_SNAP_REL/$NAME/@"
+        {
+            while read -r key rest || [ -n "$key" ]; do
+                case "$key" in
+                    "")     : ;;
+                    title)  echo "title   Linexin snapshot $NAME ($comment) [recovery]" ;;
+                    linux)  echo "linux   /linexin-snapshots/$NAME/$(basename "$rest")" ;;
+                    initrd) echo "initrd  /linexin-snapshots/$NAME/$(basename "$rest")" ;;
+                    options)
+                        # Drop the live rootflags/rw; boot the read-only snapshot
+                        # with a volatile RAM overlay so it is usable for recovery.
+                        newopts=$(echo "$rest" \
+                            | sed -E 's/[[:space:]]*rootflags=subvol=[^[:space:]]+//g' \
+                            | sed -E 's/(^|[[:space:]])rw([[:space:]]|$)/\1\2/g')
+                        echo "options $newopts ro rootflags=subvol=$subvol systemd.volatile=overlay"
+                        ;;
+                    *)      echo "$key $rest" ;;
+                esac
+            done < "$TEMPLATE_ENTRY"
+        } > "$ENTRY"
+        log "Wrote recovery boot entry $(basename "$ENTRY")"
+    else
+        warn "Kernel copy incomplete; removing partial dir, no boot entry."
+        rm -rf "$KDIR"
+    fi
+else
+    log "No systemd-boot template ($TEMPLATE_ENTRY); snapshot has no boot entry."
+fi
+
+# --- 4) Retention: keep the newest MAX_SNAPSHOTS of OUR snapshots -----------
+# Tracked by the per-snapshot kernel folders we create, so the user's own
+# Timeshift snapshots are never pruned by us.
+if [ -d "$KERNEL_DIR_BASE" ]; then
+    mapfile -t ours < <(find "$KERNEL_DIR_BASE" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+    count=${#ours[@]}
+    if [ "$count" -gt "$MAX_SNAPSHOTS" ]; then
+        remove=$(( count - MAX_SNAPSHOTS ))
+        for (( i=0; i<remove; i++ )); do
+            old="${ours[$i]}"
+            [ -z "$old" ] && continue
+            log "Pruning old snapshot $old"
+            timeshift --delete --snapshot "$old" --scripted >/dev/null 2>&1 \
+                || warn "timeshift --delete $old failed (removing local artifacts anyway)"
+            rm -rf "${KERNEL_DIR_BASE:?}/$old"
+            rm -f "$LOADER_ENTRIES/${ENTRY_PREFIX}${old}.conf"
+        done
+    fi
+fi
+
+log "Done."
+exit 0

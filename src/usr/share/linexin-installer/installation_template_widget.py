@@ -41,6 +41,11 @@ class InstallationTemplateWidget(Gtk.Box):
         self.selected_home_partition = None
         self.compact_mode = False
         self._compact_applied = False
+        # Advanced Setup: use Btrfs (with subvolumes) instead of ext4 for the root filesystem.
+        self.use_btrfs = False
+        # Advanced Setup: swap file on the root filesystem. Enabled at 4 GB by default.
+        self.swap_enabled = True
+        self.swap_size_gb = 4
 
         # Connect map signal to refresh data when widget becomes visible
         self.connect("map", self._on_map)
@@ -248,6 +253,164 @@ class InstallationTemplateWidget(Gtk.Box):
         """Switch back to main view and refresh partitions"""
         self.refresh()
         self.view_stack.set_visible_child_name("main")
+
+    def on_advanced_setup_clicked(self, button=None):
+        """Open the Advanced Setup dialog with disk/filesystem options.
+
+        Uses a StackSwitcher + Stack (same pattern as the desktop picker's
+        Advanced Setup) so more setting pages can be added later. For now it
+        exposes a single 'Filesystem' page letting the user pick Btrfs instead
+        of ext4 for the partition the system is installed on.
+        """
+        dialog = Adw.Window()
+        dialog.set_title(_("Advanced Setup"))
+        dialog.set_modal(True)
+        dialog.set_transient_for(self.get_root())
+        dialog.set_default_size(560, 420)
+        dialog.set_resizable(True)
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        dialog.set_content(main_box)
+
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle.new(_("Advanced Setup"), _("Filesystem options")))
+        main_box.append(header)
+
+        switcher = Gtk.StackSwitcher()
+        switcher.set_halign(Gtk.Align.CENTER)
+        switcher.set_margin_top(10)
+        switcher.set_margin_bottom(6)
+        main_box.append(switcher)
+
+        settings_stack = Gtk.Stack()
+        settings_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        settings_stack.set_transition_duration(180)
+        settings_stack.set_vexpand(True)
+        switcher.set_stack(settings_stack)
+        main_box.append(settings_stack)
+
+        # --- Filesystem page ---
+        fs_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        fs_page.set_margin_top(16)
+        fs_page.set_margin_bottom(16)
+        fs_page.set_margin_start(24)
+        fs_page.set_margin_end(24)
+        fs_page.set_valign(Gtk.Align.START)
+        settings_stack.add_titled(fs_page, "filesystem", _("Filesystem"))
+
+        fs_group = Adw.PreferencesGroup()
+        fs_group.set_title(_("Root Filesystem"))
+        fs_group.set_description(_("Filesystem for the partition Linexin is installed on. "
+                                   "ext4 is the reliable default. Btrfs adds transparent "
+                                   "compression and snapshot-capable subvolumes "
+                                   "(@ for / and @home for /home)."))
+        fs_page.append(fs_group)
+
+        fs_row = Adw.ActionRow()
+        fs_row.set_title(_("Filesystem"))
+        fs_group.add(fs_row)
+
+        # Segmented selector (same widget GNOME Settings uses for display scaling).
+        fs_toggle_group = Adw.ToggleGroup()
+        fs_toggle_group.set_valign(Gtk.Align.CENTER)
+
+        ext4_toggle = Adw.Toggle()
+        ext4_toggle.set_name("ext4")
+        ext4_toggle.set_label("ext4")
+        fs_toggle_group.add(ext4_toggle)
+
+        btrfs_toggle = Adw.Toggle()
+        btrfs_toggle.set_name("btrfs")
+        btrfs_toggle.set_label("Btrfs")
+        fs_toggle_group.add(btrfs_toggle)
+
+        fs_toggle_group.set_active_name("btrfs" if self.use_btrfs else "ext4")
+        fs_row.add_suffix(fs_toggle_group)
+
+        # --- Swap page ---
+        swap_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        swap_page.set_margin_top(16)
+        swap_page.set_margin_bottom(16)
+        swap_page.set_margin_start(24)
+        swap_page.set_margin_end(24)
+        swap_page.set_valign(Gtk.Align.START)
+        settings_stack.add_titled(swap_page, "swap", _("Swap"))
+
+        swap_group = Adw.PreferencesGroup()
+        swap_group.set_title(_("Swap File"))
+        swap_group.set_description(_("A swap file lets the system move idle memory to disk, "
+                                     "which helps under heavy load and is required for hibernation. "
+                                     "It is created on the root filesystem."))
+        swap_page.append(swap_group)
+
+        swap_switch_row = Adw.SwitchRow()
+        swap_switch_row.set_title(_("Create a swap file"))
+        swap_switch_row.set_active(self.swap_enabled)
+        swap_group.add(swap_switch_row)
+
+        swap_size_adj = Gtk.Adjustment(lower=1, upper=128, step_increment=1, page_increment=4,
+                                       value=self.swap_size_gb)
+        swap_size_row = Adw.SpinRow.new(swap_size_adj, 1, 0)
+        swap_size_row.set_title(_("Size (GB)"))
+        swap_size_row.set_sensitive(self.swap_enabled)
+        swap_group.add(swap_size_row)
+
+        # Size is only editable while the swap file is enabled.
+        swap_switch_row.connect(
+            "notify::active",
+            lambda row, _p: swap_size_row.set_sensitive(row.get_active())
+        )
+
+        # Bottom bar
+        bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        bottom_bar.set_halign(Gtk.Align.END)
+        bottom_bar.set_margin_top(12)
+        bottom_bar.set_margin_bottom(16)
+        bottom_bar.set_margin_end(24)
+        main_box.append(bottom_bar)
+
+        cancel_btn = Gtk.Button(label=_("Cancel"))
+        cancel_btn.connect("clicked", lambda b: dialog.close())
+        bottom_bar.append(cancel_btn)
+
+        apply_btn = Gtk.Button(label=_("Apply"))
+        apply_btn.add_css_class("suggested-action")
+
+        def on_apply(_btn):
+            self.use_btrfs = (fs_toggle_group.get_active_name() == "btrfs")
+            self.swap_enabled = swap_switch_row.get_active()
+            self.swap_size_gb = int(swap_size_row.get_value())
+            print(f"Advanced Setup: use_btrfs={self.use_btrfs}, "
+                  f"swap_enabled={self.swap_enabled}, swap_size_gb={self.swap_size_gb}")
+            # Persist the swap choice so the install step honours it in every flow.
+            self._write_swap_config()
+            # Refresh the plan description so the chosen filesystem is reflected.
+            if self.selected_partition:
+                self._update_home_info_label()
+            dialog.close()
+
+        apply_btn.connect("clicked", on_apply)
+        bottom_bar.append(apply_btn)
+
+        dialog.present()
+
+    def _write_swap_config(self):
+        """Persist the swap-file choice for the installation step.
+
+        Writes /tmp/installer_config/swap_size_mb with the requested size in MB,
+        or 0 when swap is disabled. When this file is absent the installer falls
+        back to its 4 GB default, so writing it is only needed once the user has
+        made an explicit choice in Advanced Setup.
+        """
+        try:
+            config_dir = "/tmp/installer_config"
+            os.makedirs(config_dir, exist_ok=True)
+            size_mb = self.swap_size_gb * 1024 if self.swap_enabled else 0
+            with open(os.path.join(config_dir, "swap_size_mb"), "w") as f:
+                f.write(str(int(size_mb)))
+            print(f"Wrote swap config: {size_mb} MB")
+        except Exception as e:
+            print(f"ERROR: Failed to write swap config: {e}")
 
     def _on_map(self, widget):
         """Called when the widget becomes visible (mapped)"""
@@ -755,7 +918,10 @@ class InstallationTemplateWidget(Gtk.Box):
             GLib.idle_add(self.progress_dialog.set_body, _("Creating new partitions..."))
             
             sfdisk_script = ""
-            EFI_SIZE_SECTORS = 1048576 # 512MB
+            # 2 GB ESP for every install. Btrfs snapshots keep per-snapshot kernel
+            # + initramfs copies here (systemd-boot can't read them off Btrfs), and a
+            # roomy ESP is harmless for ext4. Sized unconditionally to keep it simple.
+            EFI_SIZE_SECTORS = 4194304 # 2GB
             
             if boot_mode == "uefi":
                 # Calculate remaining space for Root
@@ -855,8 +1021,33 @@ class InstallationTemplateWidget(Gtk.Box):
                 GLib.idle_add(self.progress_dialog.set_body, _("Formatting EFI partition..."))
                 subprocess.run(['sudo', 'mkfs.vfat', '-F32', new_efi_device], check=True)
 
-            GLib.idle_add(self.progress_dialog.set_body, _("Formatting Root partition..."))
-            subprocess.run(['sudo', 'mkfs.ext4', '-F', new_root_device], check=True)
+            if self.use_btrfs:
+                GLib.idle_add(self.progress_dialog.set_body, _("Formatting Root partition (Btrfs)..."))
+                subprocess.run(['sudo', 'mkfs.btrfs', '-f', new_root_device], check=True)
+
+                # Decide the subvolume layout. When the user assigned a separate
+                # /home partition we only need @ for the root; otherwise /home
+                # lives on its own @home subvolume. The disk utility's fstab
+                # generator reads this same dict, so the created subvolumes and
+                # the generated fstab always stay in sync.
+                if self.selected_home_partition:
+                    btrfs_subvols = {'@': '/'}
+                else:
+                    btrfs_subvols = {'@': '/', '@home': '/home'}
+                # A dedicated, non-snapshotted @swap subvolume holds the swap
+                # file (mounted at /swap) so it never conflicts with Btrfs
+                # snapshots of @. The install step drops the swap file into it.
+                if self.swap_enabled and self.swap_size_gb > 0:
+                    btrfs_subvols['@swap'] = '/swap'
+                disk_utility_widget.btrfs_subvolumes = btrfs_subvols
+
+                GLib.idle_add(self.progress_dialog.set_body, _("Creating Btrfs subvolumes..."))
+                disk_utility_widget._create_btrfs_subvolumes(new_root_device)
+                root_filesystem = 'btrfs'
+            else:
+                GLib.idle_add(self.progress_dialog.set_body, _("Formatting Root partition..."))
+                subprocess.run(['sudo', 'mkfs.ext4', '-F', new_root_device], check=True)
+                root_filesystem = 'ext4'
 
             # Final Settle
             GLib.idle_add(self.progress_dialog.set_body, _("Finalizing configuration..."))
@@ -870,11 +1061,11 @@ class InstallationTemplateWidget(Gtk.Box):
                     'mountpoint': '/boot', 'bootable': True, 'filesystem': 'vfat'
                 }
                 disk_utility_widget.partition_config[new_root_device] = {
-                    'mountpoint': '/', 'bootable': False, 'filesystem': 'ext4'
+                    'mountpoint': '/', 'bootable': False, 'filesystem': root_filesystem
                 }
             else:
                 disk_utility_widget.partition_config[new_root_device] = {
-                    'mountpoint': '/', 'bootable': True, 'filesystem': 'ext4'
+                    'mountpoint': '/', 'bootable': True, 'filesystem': root_filesystem
                 }
             
             # --- STEP F: HOME PARTITION ---
@@ -1108,15 +1299,19 @@ class InstallationTemplateWidget(Gtk.Box):
         boot_mode = self._detect_boot_mode()
         if self.selected_partition['type'] == 'wholedisk':
              if boot_mode == "uefi":
-                 base_msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
+                 base_msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (2 GB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
              else:
                  base_msg = _("Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)").format(self.selected_partition['device'])
         else:
             # Partition
             if boot_mode == "uefi":
-                 base_msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (512 MB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
+                 base_msg = _("Will split <b>{}</b> into:\n1. <b>EFI Boot</b> (2 GB)\n2. <b>Root</b> (Remaining space)").format(self.selected_partition['device'])
             else:
                  base_msg = _("Will replace <b>{}</b> with:\n1. <b>Root</b> (Full available space, Bootable)").format(self.selected_partition['device'])
+
+        # Show which root filesystem will be used (set via Advanced Setup)
+        fs_name = "Btrfs" if self.use_btrfs else "ext4"
+        base_msg += "\n" + _("Root filesystem: <b>{}</b>").format(fs_name)
 
         # Append Home info
         if self.selected_home_partition:

@@ -900,7 +900,79 @@ class InstallationWidget(Gtk.Box):
         # bootloader.sh or pacman-S linux will handle the rest.
         exit 0
         """
-    
+
+    def _get_create_swap_command(self, size_mb):
+        """Generate a bash command that creates a swap file on the target root.
+
+        Places the file inside the dedicated @swap subvolume (mounted at /swap)
+        when present -- the Btrfs case, which keeps swap out of / snapshots --
+        otherwise at /swapfile on the root. On Btrfs the file is made NOCOW and
+        fully allocated, both of which the kernel requires for swap.
+        """
+        return r"""
+        set -u
+        ROOT_MNT="/tmp/linexin_installer/root"
+        SIZE_MB=""" + str(int(size_mb)) + r"""
+
+        if ! mountpoint -q "$ROOT_MNT"; then
+            echo "Root not mounted, skipping swap file creation"
+            exit 0
+        fi
+
+        # Prefer the dedicated @swap subvolume (Btrfs) when it is mounted so the
+        # swap file stays out of / snapshots; fall back to the root otherwise.
+        if mountpoint -q "$ROOT_MNT/swap"; then
+            SWAP_DIR="$ROOT_MNT/swap"
+            SWAP_FSTAB_PATH="/swap/swapfile"
+        else
+            SWAP_DIR="$ROOT_MNT"
+            SWAP_FSTAB_PATH="/swapfile"
+        fi
+        SWAPFILE="$SWAP_DIR/swapfile"
+        FS_TYPE=$(findmnt -no FSTYPE "$SWAP_DIR")
+        echo "Creating ${SIZE_MB}MB swap file at $SWAPFILE (fs: $FS_TYPE)"
+
+        # Clear any stale swap file first.
+        swapoff "$SWAPFILE" 2>/dev/null || true
+        rm -f "$SWAPFILE"
+
+        NEED_MKSWAP=1
+        if [ "$FS_TYPE" = "btrfs" ]; then
+            # Btrfs swap files must be NOCOW, uncompressed and fully allocated.
+            if command -v btrfs >/dev/null 2>&1 && \
+               btrfs filesystem mkswapfile --size "${SIZE_MB}m" "$SWAPFILE" 2>/dev/null; then
+                NEED_MKSWAP=0   # mkswapfile already ran mkswap
+            else
+                truncate -s 0 "$SWAPFILE"
+                chattr +C "$SWAPFILE" 2>/dev/null || true
+                dd if=/dev/zero of="$SWAPFILE" bs=1M count="$SIZE_MB" status=none
+            fi
+        else
+            # ext4 and friends: fallocate is instant; dd is the safe fallback.
+            fallocate -l "${SIZE_MB}M" "$SWAPFILE" 2>/dev/null || \
+                dd if=/dev/zero of="$SWAPFILE" bs=1M count="$SIZE_MB" status=none
+        fi
+
+        chmod 600 "$SWAPFILE"
+        if [ "$NEED_MKSWAP" -eq 1 ]; then
+            mkswap "$SWAPFILE" || { echo "mkswap failed"; exit 1; }
+        fi
+
+        # Register the swap file in the target's fstab (idempotently).
+        FSTAB="$ROOT_MNT/etc/fstab"
+        if [ -f "$FSTAB" ]; then
+            if ! grep -qE "^[[:space:]]*${SWAP_FSTAB_PATH}[[:space:]]" "$FSTAB"; then
+                printf '\n# Swap file\n%s none swap defaults 0 0\n' "$SWAP_FSTAB_PATH" >> "$FSTAB"
+                echo "Added $SWAP_FSTAB_PATH to $FSTAB"
+            else
+                echo "Swap entry already present in fstab"
+            fi
+        else
+            echo "Warning: $FSTAB not found; swap file created but not registered"
+        fi
+        echo "Swap file ready"
+        """
+
     def start_installation(self, loop_device="/dev/loop0"):
         """Start the installation process.
         
@@ -993,7 +1065,29 @@ class InstallationWidget(Gtk.Box):
             weight=1.0,
             critical=False
         ))
-        
+
+        # Create a swap file on the target if requested (default 4 GB). The size
+        # comes from Advanced Setup; 0 means the user turned swap off. This runs
+        # after the config (and thus the target fstab) has been copied over.
+        swap_size_mb = 4096
+        try:
+            swap_cfg = "/tmp/installer_config/swap_size_mb"
+            if os.path.exists(swap_cfg):
+                with open(swap_cfg, 'r') as f:
+                    swap_size_mb = int(f.read().strip() or "0")
+        except Exception as e:
+            print(f"Error reading swap config, using 4 GB default: {e}")
+            swap_size_mb = 4096
+
+        if swap_size_mb > 0:
+            steps.append(InstallationStep(
+                label="Creating swap file",
+                command=["sudo", "bash", "-c", self._get_create_swap_command(swap_size_mb)],
+                description="Creating a swap file and adding it to fstab",
+                weight=2.0,
+                critical=False
+            ))
+
         # Post-installation cleanup and configuration steps
 
 
@@ -1149,6 +1243,36 @@ class InstallationWidget(Gtk.Box):
             label="Cleaning out rootfs",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "rm /*.sh"],
             description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
+            weight=1.0,
+            critical=False
+        ))
+
+        # Snapshot tooling. Runs after the rootfs cleanup so the first snapshot is
+        # clean, and after the bootloader step so the systemd-boot template exists.
+        steps.append(InstallationStep(
+            label="Installing snapshot tools",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c",
+                     "pacman -S --needed --noconfirm timeshift btrfs-progs 2>/dev/null || true"],
+            description="Ensuring Timeshift and btrfs-progs are present on the new system",
+            weight=1.0,
+            critical=False
+        ))
+
+        # On Btrfs: create the initial bootable snapshot and activate the pacman
+        # hook (staged inactive until now so it never fired during installation).
+        # On ext4: just discard the staged hook.
+        steps.append(InstallationStep(
+            label="Enabling snapshot automation",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c",
+                     'if [ "$(findmnt -no FSTYPE /)" = "btrfs" ]; then '
+                     'chmod +x /usr/local/bin/linexin-snapshot 2>/dev/null; '
+                     '/usr/local/bin/linexin-snapshot configure; '
+                     'mv -f /etc/pacman.d/hooks/00-linexin-snapshot.hook.inactive '
+                     '/etc/pacman.d/hooks/00-linexin-snapshot.hook 2>/dev/null || true; '
+                     'else '
+                     'rm -f /etc/pacman.d/hooks/00-linexin-snapshot.hook.inactive 2>/dev/null || true; '
+                     'fi'],
+            description="Configuring Timeshift and enabling automatic update snapshots",
             weight=1.0,
             critical=False
         ))

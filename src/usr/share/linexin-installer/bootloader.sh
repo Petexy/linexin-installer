@@ -51,6 +51,48 @@ detect_boot_mode() {
     fi
 }
 
+# When the root filesystem is Btrfs and "/" lives on a subvolume, the kernel
+# needs an explicit rootflags=subvol=<name>, otherwise it mounts the top-level
+# subvolume (subvolid 5) which has no /sbin/init and the boot fails. GRUB's
+# grub-mkconfig detects and injects this automatically, but systemd-boot and
+# rEFInd do not, so we compute it here and add it to their kernel command lines.
+get_root_rootflags() {
+    local fstype subvol
+    fstype=$(findmnt -no FSTYPE / 2>/dev/null)
+    [ "$fstype" = "btrfs" ] || return 0
+
+    subvol=$(findmnt -no FSROOT / 2>/dev/null)
+    subvol="${subvol#/}"   # "/@" -> "@", top-level "/" -> ""
+    [ -n "$subvol" ] && echo "rootflags=subvol=$subvol"
+}
+
+# Ensure the initramfs can actually mount a Btrfs root: make sure the btrfs
+# module is compiled in and regenerate. mkinitcpio's autodetect usually catches
+# it, but being explicit avoids an unbootable system when it does not (e.g. when
+# generated from inside a chroot).
+ensure_btrfs_initramfs() {
+    local fstype
+    fstype=$(findmnt -no FSTYPE / 2>/dev/null)
+    [ "$fstype" = "btrfs" ] || return 0
+
+    print_msg "Btrfs root detected: ensuring initramfs includes btrfs support"
+
+    local conf="/etc/mkinitcpio.conf"
+    if [ -f "$conf" ] && ! grep -qE '^[[:space:]]*MODULES=.*\bbtrfs\b' "$conf"; then
+        if grep -qE '^[[:space:]]*MODULES=\(' "$conf"; then
+            # MODULES=(...)  ->  MODULES=(... btrfs)
+            sed -i -E 's/^([[:space:]]*MODULES=\()(.*)\)/\1\2 btrfs)/' "$conf"
+            # Collapse the leading space produced when MODULES was empty.
+            sed -i -E 's/^([[:space:]]*MODULES=\() btrfs\)/\1btrfs)/' "$conf"
+            print_msg "Added btrfs to MODULES in mkinitcpio.conf"
+        fi
+    fi
+
+    if ! mkinitcpio -P; then
+        print_warning "mkinitcpio regeneration reported problems"
+    fi
+}
+
 # Return the partition-table type ("gpt", "dos"/"mbr", "loop", ...) of the
 # disk that contains the ESP mount. Prints nothing on failure.
 detect_esp_pttype() {
@@ -327,19 +369,24 @@ EOF
     
     mkdir -p "$esp_path/loader/entries"
     local root_uuid=$(findmnt -no UUID /)
-    
+
+    # Add rootflags=subvol=@ when root is a Btrfs subvolume (empty otherwise).
+    local rootflags=$(get_root_rootflags)
+    local root_opts="root=UUID=$root_uuid rw"
+    [ -n "$rootflags" ] && root_opts="$root_opts $rootflags"
+
     cat > "$esp_path/loader/entries/linexin.conf" <<EOF
 title   Linexin
 linux   /vmlinuz-linux
 initrd  /initramfs-linux.img
-options root=UUID=$root_uuid rw quiet splash
+options $root_opts quiet splash
 EOF
-    
+
     cat > "$esp_path/loader/entries/linexin-fallback.conf" <<EOF
 title   Linexin (fallback)
 linux   /vmlinuz-linux
 initrd  /initramfs-linux-fallback.img
-options root=UUID=$root_uuid rw
+options $root_opts
 EOF
     
     local esp_device=$(findmnt -no SOURCE "$esp_path")
@@ -540,10 +587,14 @@ install_refind() {
     fi
     
     local root_uuid=$(findmnt -no UUID /)
+    # Add rootflags=subvol=@ when root is a Btrfs subvolume (empty otherwise).
+    local rootflags=$(get_root_rootflags)
+    local root_base="root=UUID=$root_uuid rw"
+    [ -n "$rootflags" ] && root_base="$root_base $rootflags"
     cat > "$esp_path/refind_linux.conf" <<EOF
-"Boot Linexin"                 "root=UUID=$root_uuid rw quiet splash"
-"Boot Linexin (terminal)"      "root=UUID=$root_uuid rw systemd.unit=multi-user.target"
-"Boot to single-user mode"     "root=UUID=$root_uuid rw single"
+"Boot Linexin"                 "$root_base quiet splash"
+"Boot Linexin (terminal)"      "$root_base systemd.unit=multi-user.target"
+"Boot to single-user mode"     "$root_base single"
 EOF
     
     cat > "$esp_path/EFI/refind/refind.conf" <<'EOF'
@@ -716,6 +767,10 @@ main() {
         set -x
         print_msg "DEBUG MODE ENABLED"
     fi
+
+    # If installing onto Btrfs, make sure the initramfs can mount it before we
+    # generate any bootloader entries that reference that initramfs.
+    ensure_btrfs_initramfs
 
     BOOTLOADER_CHOICE=$(get_bootloader_choice)
     print_msg "Bootloader preference: $BOOTLOADER_CHOICE"

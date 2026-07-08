@@ -155,6 +155,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.disks_button.set_visible(False)
         self.disks_button.set_sensitive(False)
 
+        # Advanced Setup for the partition/template page: disk-related options (Btrfs).
+        self.advanced_disk_button = Gtk.Button(label="Advanced Setup", margin_end=5)
+        self.advanced_disk_button.connect("clicked", self.installation_template_page.on_advanced_setup_clicked)
+        self.advanced_disk_button.set_visible(False)
+        self.advanced_disk_button.set_sensitive(False)
+
         self.advanced_setup_button = Gtk.Button(label="Advanced Setup", margin_end=5)
         self.advanced_setup_button.connect("clicked", self.de_picker_page.on_advanced_setup_clicked)
         self.advanced_setup_button.set_visible(False)
@@ -162,6 +168,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         action_buttons_box.append(self.refresh_button)
         action_buttons_box.append(self.disks_button)
+        action_buttons_box.append(self.advanced_disk_button)
         action_buttons_box.append(self.advanced_setup_button)
 
         self.header_bar.pack_end(action_buttons_box)
@@ -249,6 +256,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         show_refresh = page == "disk_utility"
         show_disks = page in ("installtemplate", "disk_utility")
+        show_advanced_disk = page == "installtemplate"
         show_advanced_setup = page == "depicker"
 
         self.refresh_button.set_visible(show_refresh)
@@ -256,6 +264,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.disks_button.set_visible(show_disks)
         self.disks_button.set_sensitive(show_disks)
+
+        self.advanced_disk_button.set_visible(show_advanced_disk)
+        self.advanced_disk_button.set_sensitive(show_advanced_disk)
 
         self.advanced_setup_button.set_visible(show_advanced_setup)
         self.advanced_setup_button.set_sensitive(show_advanced_setup)
@@ -391,7 +402,29 @@ class MainWindow(Adw.ApplicationWindow):
                     print(f"Copied {filename} to {config_dir}")
                 else:
                     print(f"Warning: {filename} not found in {app_dir}")
-            
+
+            # Stage the Btrfs snapshot tooling at its target paths so the
+            # "Applying installer configuration" rsync drops it onto the new
+            # system. The pacman hook is staged inactive (.hook.inactive, which
+            # pacman ignores) and only activated at the end of installation, so
+            # it never fires during the install's own pacman transactions.
+            snapshot_files = [
+                ("snapshots/linexin-snapshot",
+                 "usr/local/bin/linexin-snapshot", 0o755),
+                ("snapshots/00-linexin-snapshot.hook",
+                 "etc/pacman.d/hooks/00-linexin-snapshot.hook.inactive", 0o644),
+            ]
+            for src_rel, dest_rel, mode in snapshot_files:
+                source_path = os.path.join(app_dir, src_rel)
+                dest_path = os.path.join(config_dir, dest_rel)
+                if os.path.exists(source_path):
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    shutil.copy2(source_path, dest_path)
+                    os.chmod(dest_path, mode)
+                    print(f"Staged {dest_rel} in {config_dir}")
+                else:
+                    print(f"Warning: {src_rel} not found in {app_dir}")
+
             # Always advance to next screen regardless of file copying results
             self.main_stack.set_visible_child_name("language")
             

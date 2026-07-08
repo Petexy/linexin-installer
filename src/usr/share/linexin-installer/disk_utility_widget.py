@@ -977,13 +977,14 @@ class DiskUtilityWidget(Gtk.Box):
     def init_partition_config(self):
         """Initialize partition configuration - call this in widget __init__"""
         self._load_partition_config()
-        # Add Btrfs subvolume configuration
+        # Btrfs subvolume layout. Kept intentionally minimal so that every
+        # subvolume listed here is actually created and then mounted: the fstab
+        # generator emits exactly one entry per item, so any subvolume that is
+        # listed but not created would make the installed system drop to
+        # emergency mode when systemd fails to mount it at boot.
         self.btrfs_subvolumes = {
             '@': '/',
             '@home': '/home',
-            '@var': '/var',
-            '@tmp': '/tmp',
-            '@snapshots': '/.snapshots'
         }
 
     def on_remove_clicked(self, button):
@@ -1613,14 +1614,13 @@ class DiskUtilityWidget(Gtk.Box):
                                 device_identifier = device
                             
                             options = f"subvol={subvol},defaults,compress=zstd,noatime"
-                            
-                            if mount == "/":
-                                dump = "0"
-                                pass_num = "1"
-                            else:
-                                dump = "0"
-                                pass_num = "2"
-                            
+
+                            # Btrfs has no fsck; the pass field must be 0 for
+                            # every subvolume entry (a non-zero pass makes systemd
+                            # run a pointless fsck that can delay or derail boot).
+                            dump = "0"
+                            pass_num = "0"
+
                             fstab_line = f"{device_identifier:<25} {mount:<15} {filesystem:<7} {options:<40} {dump:<6} {pass_num}"
                             fstab_content.append(fstab_line)
                         
@@ -1870,47 +1870,47 @@ class DiskUtilityWidget(Gtk.Box):
             self._show_error_dialog("Error", f"Failed to format partition: {str(e)}")
 
     def _create_btrfs_subvolumes(self, device):
-        """Create Btrfs subvolumes for a formatted Btrfs partition"""
-        try:
-            import tempfile
-            import time
-            
-            # Create temporary mount point
-            with tempfile.TemporaryDirectory() as tmpdir:
-                # Mount the Btrfs filesystem
-                cmd = ['sudo', 'mount', device, tmpdir]
-                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                if process.returncode != 0:
-                    raise Exception(f"Failed to mount Btrfs: {process.stderr}")
-                
-                try:
-                    # Create subvolumes
-                    for subvol in ['@', '@home', '@var', '@tmp', '@snapshots']:
-                        cmd = ['sudo', 'btrfs', 'subvolume', 'create', f"{tmpdir}/{subvol}"]
-                        process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                        if process.returncode != 0:
-                            print(f"Warning: Failed to create subvolume {subvol}: {process.stderr}")
-                    
-                    # Set default subvolume to @
-                    cmd = ['sudo', 'btrfs', 'subvolume', 'list', tmpdir]
-                    process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                    if process.returncode == 0:
-                        # Parse output to find @ subvolume ID
-                        for line in process.stdout.split('\n'):
-                            if ' path @' in line and ' path @' == line[line.find(' path '):]:
-                                subvol_id = line.split()[1]
-                                cmd = ['sudo', 'btrfs', 'subvolume', 'set-default', subvol_id, tmpdir]
-                                subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                                break
-                    
-                finally:
-                    # Unmount
-                    time.sleep(1)
-                    cmd = ['sudo', 'umount', tmpdir]
-                    subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                    
-        except Exception as e:
-            print(f"Error creating Btrfs subvolumes: {e}")
+        """Create the Btrfs subvolumes defined in self.btrfs_subvolumes.
+
+        Mounts the freshly-formatted Btrfs top-level (subvolid=5), creates one
+        subvolume per entry (e.g. @, @home) and unmounts. Those subvolumes are
+        mounted later through explicit subvol= options in the generated fstab,
+        and the kernel is told which one holds the root via rootflags=subvol=@
+        (see bootloader.sh) -- so we intentionally do NOT change the
+        filesystem's default subvolume here (keeping the default at subvolid=5
+        is what snapshot/rollback tooling expects).
+
+        Raises on failure so the caller can surface a partitioning error instead
+        of silently producing an unbootable system.
+        """
+        import tempfile
+        import time
+
+        subvols = list(self.btrfs_subvolumes.keys()) or ['@']
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Mount the top-level volume explicitly so subvolumes are created at
+            # the filesystem root regardless of any default-subvolume setting.
+            mount_proc = subprocess.run(
+                ['sudo', 'mount', '-t', 'btrfs', '-o', 'subvolid=5', device, tmpdir],
+                capture_output=True, text=True, timeout=30
+            )
+            if mount_proc.returncode != 0:
+                raise Exception(f"Failed to mount Btrfs {device}: {mount_proc.stderr}")
+
+            try:
+                for subvol in subvols:
+                    proc = subprocess.run(
+                        ['sudo', 'btrfs', 'subvolume', 'create', f"{tmpdir}/{subvol}"],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    if proc.returncode != 0:
+                        raise Exception(f"Failed to create subvolume {subvol}: {proc.stderr}")
+                    print(f"Created Btrfs subvolume {subvol}")
+            finally:
+                time.sleep(1)
+                subprocess.run(['sudo', 'sync'], capture_output=True)
+                subprocess.run(['sudo', 'umount', tmpdir], capture_output=True, text=True, timeout=30)
 
     def _format_partition_sync(self, device, filesystem):
         """Format a partition synchronously"""

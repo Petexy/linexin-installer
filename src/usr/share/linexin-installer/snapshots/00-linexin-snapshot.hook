@@ -1,0 +1,13 @@
+# Linexin: take a bootable Btrfs snapshot of @ before every system upgrade.
+# Installed by the Linexin installer only on Btrfs systems. Fires once per
+# pacman upgrade transaction, before any change is made, so the snapshot (and
+# the kernel copied for it) reflect the pre-update state.
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = *
+
+[Action]
+Description = Creating pre-update Linexin Btrfs snapshot...
+When = PreTransaction
+Exec = /usr/local/bin/linexin-snapshot create pre-update
