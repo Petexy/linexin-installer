@@ -5,15 +5,22 @@
 # Snapshots are created with Timeshift (so they appear in, and can be restored
 # from, the Timeshift GUI). Because systemd-boot cannot read a kernel from
 # Btrfs, we additionally copy the CURRENT kernel/initramfs onto the ESP and
-# write a systemd-boot "recovery" entry per snapshot that boots the Timeshift
-# snapshot subvolume with that matching kernel. Timeshift snapshots are
-# read-only, so recovery entries boot read-only with a volatile RAM overlay
+# write a systemd-boot "recovery" entry that boots the Timeshift snapshot
+# subvolume with that matching kernel. Timeshift snapshots are read-only, so
+# recovery entries boot read-only with a volatile RAM overlay
 # (systemd.volatile=overlay): enough to get in and run `timeshift --restore`.
 #
+# A recovery entry (and the kernel copy it needs) is written only when the
+# kernel that the live entry boots is actually part of the current pacman
+# upgrade -- the hook passes the transaction's target packages on stdin
+# (NeedsTargets). When the kernel is unchanged the running kernel still boots
+# fine, so we skip the redundant kernel copy and near-duplicate entry and just
+# record the snapshot.
+#
 # Retention: keeps the newest MAX_SNAPSHOTS snapshots that WE created (tracked
-# by the per-snapshot kernel folders on the ESP), pruning the Timeshift snapshot
-# and boot artifacts together. Snapshots the user makes by hand in the Timeshift
-# GUI are left alone.
+# by the per-snapshot folder on the ESP, created for every snapshot we take),
+# pruning the Timeshift snapshot and any boot artifacts together. Snapshots the
+# user makes by hand in the Timeshift GUI are left alone.
 #
 # Usage: linexin-snapshot create [comment]
 
@@ -99,6 +106,42 @@ if [ "$cmd" = "configure" ]; then
     exit 0
 fi
 
+# --- Decide whether this snapshot needs a systemd-boot recovery entry -------
+# A snapshot is always taken, but a recovery entry (and the kernel copy it
+# needs) is only worth writing when the kernel that the live entry boots is
+# actually part of THIS upgrade. When the kernel is unchanged the running
+# kernel still boots, so copying an identical kernel and adding a near-duplicate
+# entry every update is pointless -- we just record the snapshot. The pacman
+# hook passes the transaction's target packages on stdin (NeedsTargets); a
+# manual `create` run has no target list and always gets an entry.
+# NOTE: read stdin here, before `timeshift --create`, so it is not consumed.
+make_boot_entry=1
+targets=""
+if [ ! -t 0 ]; then
+    targets=$(cat 2>/dev/null || true)
+fi
+if [ -n "$targets" ] && [ -f "$TEMPLATE_ENTRY" ]; then
+    # Package that owns the booted kernel, derived from the live entry's vmlinuz
+    # by Arch convention: /vmlinuz-linux-zen -> linux-zen. (The file in /boot is
+    # often a generated copy, so `pacman -Qo` can't be relied on to resolve it.)
+    kfile=$(awk '$1=="linux"{print $2; exit}' "$TEMPLATE_ENTRY")
+    kpkg=""
+    if [ -n "$kfile" ]; then
+        case "$(basename -- "$kfile")" in
+            vmlinuz-?*) kpkg="$(basename -- "$kfile")"; kpkg="${kpkg#vmlinuz-}" ;;
+        esac
+    fi
+    if [ -n "$kpkg" ]; then
+        if printf '%s\n' "$targets" | grep -Fxq -- "$kpkg"; then
+            log "Kernel '$kpkg' is being upgraded; will add a recovery boot entry."
+            make_boot_entry=1
+        else
+            log "Kernel '$kpkg' unchanged this transaction; recording snapshot without a new boot entry."
+            make_boot_entry=0
+        fi
+    fi
+fi
+
 # --- 1) Create the Timeshift snapshot --------------------------------------
 if ! timeshift --create --comments "$comment" --scripted; then
     warn "timeshift --create failed."
@@ -136,11 +179,19 @@ if [ -z "$NAME" ] || [ ! -d "$SNAPROOT/$NAME/@" ]; then
 fi
 log "New snapshot: $NAME ($comment)"
 
-# --- 3) Copy the matching kernel and write a recovery boot entry -----------
-if [ -f "$TEMPLATE_ENTRY" ]; then
-    KDIR="$KERNEL_DIR_BASE/$NAME"
-    mkdir -p "$KDIR"
+# --- 3) Record the snapshot; add a recovery entry only on a kernel change ---
+# The per-snapshot folder under $KERNEL_DIR_BASE is created for EVERY snapshot
+# we take: it is the marker retention (step 4) uses to tell our snapshots apart
+# from ones the user made by hand. The kernel copy and systemd-boot entry inside
+# it are added only when the booted kernel actually changed in this transaction.
+KDIR="$KERNEL_DIR_BASE/$NAME"
+mkdir -p "$KDIR"
 
+if [ ! -f "$TEMPLATE_ENTRY" ]; then
+    log "No systemd-boot template ($TEMPLATE_ENTRY); snapshot recorded without a boot entry."
+elif [ "$make_boot_entry" -ne 1 ]; then
+    log "Kernel unchanged; snapshot recorded without a new boot entry."
+else
     copy_ok=1
     while read -r key val || [ -n "$key" ]; do
         case "$key" in
@@ -179,11 +230,9 @@ if [ -f "$TEMPLATE_ENTRY" ]; then
         } > "$ENTRY"
         log "Wrote recovery boot entry $(basename "$ENTRY")"
     else
-        warn "Kernel copy incomplete; removing partial dir, no boot entry."
-        rm -rf "$KDIR"
+        warn "Kernel copy incomplete; boot entry skipped (snapshot still recorded)."
+        rm -f "$KDIR"/* 2>/dev/null || true
     fi
-else
-    log "No systemd-boot template ($TEMPLATE_ENTRY); snapshot has no boot entry."
 fi
 
 # --- 4) Retention: keep the newest MAX_SNAPSHOTS of OUR snapshots -----------
