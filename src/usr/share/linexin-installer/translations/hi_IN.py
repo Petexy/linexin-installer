@@ -7,7 +7,6 @@ translations = {
             "Continue": "जारी रखें",
             # Timezone
             "Select Your Timezone": "अपना समय क्षेत्र चुनें",
-            "Choose a city in your region. This will be used to set the clock.": "अपने क्षेत्र में एक शहर चुनें। इसका उपयोग घड़ी सेट करने के लिए किया जाएगा।",
             "Search for your city or region...": "अपना शहर या क्षेत्र खोजें...",
             "Advanced": "उन्नत",
             "Proceed": "आगे बढ़ें",

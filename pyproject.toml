@@ -9,6 +9,7 @@ authors = [
 ]
 dependencies = [
     "PyGObject",
+    "pycairo",
 ]
 
 [project.urls]

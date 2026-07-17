@@ -7,7 +7,6 @@ translations = {
             "Continue": "Продолжить",
             # Timezone
             "Select Your Timezone": "Выберите часовой пояс",
-            "Choose a city in your region. This will be used to set the clock.": "Выберите город в вашем регионе. Это будет использоваться для установки часов.",
             "Search for your city or region...": "Поиск вашего города или региона...",
             "Advanced": "Расширенные",
             "Proceed": "Продолжить",

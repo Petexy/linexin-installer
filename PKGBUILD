@@ -9,6 +9,7 @@ arch=('x86_64')
 license=('GPL-3.0')
 depends=(
   'python-gobject'
+  'python-cairo'
   'gtk4'
   'libadwaita'
   'python'

@@ -7,7 +7,6 @@ translations = {
 
             #Timezone
             "Select Your Timezone": "Wybierz swoją strefę czasową",
-            "Choose a city in your region. This will be used to set the clock.": "Wybierz miasto w swoim regionie. Zostanie ono użyte do ustawienia zegara.",
             "Search for your city or region...": "Szukaj miasta lub regionu...",
             "Advanced": "Zaawansowane",
             "Proceed": "Dalej",

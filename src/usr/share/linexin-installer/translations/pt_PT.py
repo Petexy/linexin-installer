@@ -7,7 +7,6 @@ translations = {
             "Continue": "Continuar",
             # Timezone
             "Select Your Timezone": "Selecione seu fuso horário",
-            "Choose a city in your region. This will be used to set the clock.": "Escolha uma cidade na sua região. Isso será usado para configurar o relógio.",
             "Search for your city or region...": "Pesquise sua cidade ou região...",
             "Advanced": "Avançado",
             "Proceed": "Prosseguir",

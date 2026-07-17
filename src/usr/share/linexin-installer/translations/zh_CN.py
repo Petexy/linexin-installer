@@ -7,7 +7,6 @@ translations = {
             "Continue": "继续",
             # Timezone
             "Select Your Timezone": "选择时区",
-            "Choose a city in your region. This will be used to set the clock.": "选择您所在地区的城市。这将用于设置时钟。",
             "Search for your city or region...": "搜索您的城市或地区...",
             "Advanced": "高级",
             "Proceed": "继续",

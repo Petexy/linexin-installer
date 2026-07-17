@@ -7,7 +7,6 @@ translations = {
 
             #Timezone
             "Select Your Timezone": "Select Your Timezone",
-            "Choose a city in your region. This will be used to set the clock.": "Choose a city in your region. This will be used to set the clock.",
             "Search for your city or region...": "Search for your city or region...",
             "Advanced": "Advanced",
             "Proceed": "Proceed",
@@ -352,7 +351,6 @@ translations = {
 
             #Timezone
             "Select Your Timezone": "Select Your Timezone",
-            "Choose a city in your region. This will be used to set the clock.": "Choose a city in your region. This will be used to set the clock.",
             "Search for your city or region...": "Search for your city or region...",
             "Advanced": "Advanced",
             "Proceed": "Proceed",

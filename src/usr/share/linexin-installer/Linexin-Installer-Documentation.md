@@ -7,7 +7,9 @@ The **Linexin Installer** is a modern, user-friendly Linux installer built with 
 ### Key Technologies
 -   **Language**: Python 3
 -   **UI Toolkit**: GTK 4 + Libadwaita (provides modern GNOME aesthetics and adaptive widgets)
+-   **Graphics**: Cairo / PyCairo — the timezone screen renders a fully offline world map natively with Cairo (no WebKit/network required). Requires the `pycairo` / `python-cairo` package.
 -   **System Tools**: `parted`, `lsblk`, `rsync`, `mkfs`, `btrfs-progs`, `arch-chroot` (for Arch base)
+-   **Localization Data**: `timedatectl` / `localectl` (timezone and keymap lists), the X11/xkb rules database (`/usr/share/X11/xkb/rules/*.xml`, for normalized keyboard layout and variant names) and systemd's `kbd-model-map` (for deriving the console `KEYMAP`).
 
 ### Directory Structure
 The application source is located in `src/usr/share/linexin-installer/`.
@@ -15,6 +17,7 @@ The application source is located in `src/usr/share/linexin-installer/`.
 -   **`*_widget.py`**: Individual screens (pages) of the installer.
 -   **`simple_localization_manager.py`**: Handles translation loading and mapping.
 -   **`disk_utils.py`**: Utility functions for disk operations.
+-   **`world_land.json`**: Bundled public-domain (Natural Earth) land polygons used to draw the offline world map on the timezone screen.
 -   **`translations/`**: Directory containing localization files.
 
 ---
@@ -27,8 +30,8 @@ The installer is composed of a stack of "Widgets" (Pages). The main window switc
 | :--- | :--- | :--- |
 | **WelcomeWidget** | `welcome_widget.py` | Initial screen. Features language cycling animation and "Begin Installation" button. |
 | **LanguageWidget** | `language_widget.py` | List of available languages for the system. |
-| **TimezoneWidget** | `timezone_widget.py` | Interactive map and list to select the system timezone. |
-| **KeyboardLayoutWidget** | `keyboard_layout_widget.py` | Searchable list of keyboard layouts with a test entry field. |
+| **TimezoneWidget** | `timezone_widget.py` | Fully offline, natively Cairo-rendered interactive world map plus a searchable list to select the system timezone. Clicking the map picks the nearest city; land polygons are bundled in `world_land.json`. No network required. |
+| **KeyboardLayoutWidget** | `keyboard_layout_widget.py` | Searchable list of keyboard layouts and their variants (read from the X11/xkb rules database for normalized, human-readable names) with a live preview and a test entry field. Writes `vconsole.conf` and an X11/Wayland keyboard config for the target system. |
 | **InstallationTemplateWidget** | `installation_template_widget.py` | High-level partitioning choices: "Erase Disk", "Install Alongside", or "Manual Partitioning". |
 | **DiskUtilityWidget** | `disk_utility_widget.py` | Advanced partition manager. Allows creating/deleting partitions, formatting, and assigning mount points manually. |
 | **DEPicker** | `de_picker_widget.py` | Selection screen for Desktop Environment (e.g., Linexin vs. Kinexin). Writes selection to `/tmp/installer_config`. |
