@@ -334,7 +334,8 @@ class SimpleLocalizationManager(GObject.Object):
             "zh_CN.UTF-8",
             "hi_IN.UTF-8",
             "es_ES.UTF-8",
-            "pt_BR.UTF-8"
+            "pt_BR.UTF-8",
+            "fi_FI.UTF-8"
         ]
         
         for lang_code in supported_languages:
